@@ -1,0 +1,18 @@
+{
+  "purchase_order_number": "4551237192",
+  "page_count": 2,
+  "source_file": "Incoming_07282025_265548_searchable.pdf",
+  "production_order": "125144732",
+  "revision": "A",
+  "part_number": "818-785*OP20",
+  "quantity": null,
+  "dock_date": "08/13/2025",
+  "payment_terms": "30 Days from Date of Invoice",
+  "payment_terms_non_standard_flag": false,
+  "vendor_name": "Supplier",
+  "vendor_non_tek_flag": true,
+  "buyer_name": "Buyer fax",
+  "dpas_ratings": null,
+  "quality_clauses": null,
+  "filemaker_status": "failed"
+}

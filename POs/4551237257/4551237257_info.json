@@ -1,0 +1,19 @@
+{
+  "purchase_order_number": "4551237257",
+  "page_count": 2,
+  "source_file": "Incoming_07282025_265564_searchable.pdf",
+  "production_order": "125146646",
+  "revision": "N",
+  "part_number": "154370-9*OP20",
+  "quantity": 595,
+  "dock_date": "08/10/2025",
+  "payment_terms": "30 Days from Date of Invoice",
+  "payment_terms_non_standard_flag": false,
+  "vendor_name": "Hollywood,",
+  "vendor_non_tek_flag": true,
+  "buyer_name": "Nataly Hernandez",
+  "dpas_ratings": null,
+  "quality_clauses": null,
+  "filemaker_status": "success",
+  "filemaker_timestamp": "2025-08-16T21:10:48.288266"
+}
