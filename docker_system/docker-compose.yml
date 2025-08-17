@@ -11,6 +11,13 @@ services:
       - /volume1/Main/Main/ParkerPOsOCR/Errors:/app/errors
       # Mount logs for debugging
       - ./logs:/app/logs
+
+  po-dashboard:
+    build: ../dashboard
+    container_name: po-dashboard
+    network_mode: host
+    volumes:
+      - /volume1/Main/Main/ParkerPOsOCR/dashboard/logs:/app/logs
     environment:
       - TZ=America/Los_Angeles
       - PYTHONUNBUFFERED=1
