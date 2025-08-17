@@ -327,11 +327,18 @@ def api_po_details(po_number):
             "total_files": len(json_files) + len(pdf_files) + len(text_files)
         }
         
-        # If there's a main JSON file, include its content at the top level
-        main_json = next((j for j in json_files if j["name"] == f"{po_number}.json"), None)
+
+        # If there's a main JSON file, flatten and expose all relevant fields at the top level
+        main_json = next((j for j in json_files if j["name"] == f"{po_number}_info.json" or j["name"] == f"{po_number}.json"), None)
         if main_json and isinstance(main_json["content"], dict):
-            po_details.update(main_json["content"])
-        
+            for key, value in main_json["content"].items():
+                po_details[key] = value
+
+        # Ensure all expected fields are present (for modal population)
+        for field in ["part_number", "quantity", "buyer_name", "dock_date", "production_order"]:
+            if field not in po_details:
+                po_details[field] = "N/A"
+
         return po_details
         
     except Exception as e:

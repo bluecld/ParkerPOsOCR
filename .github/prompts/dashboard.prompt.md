@@ -6,6 +6,12 @@ version: "1.0"
 tags: ["dashboard", "flask", "bootstrap", "ui", "frontend"]
 ---
 
+# Permanent Dashboard Access Note
+
+**Local HTTPS URL:** [https://192.168.0.62:9443/](https://192.168.0.62:9443/)
+
+Use this address to access the dashboard from any device on your local network. SSL certificates are configured for secure access. If the IP changes, update this note accordingly.
+
 # Parker PO Dashboard Development Context
 
 You are an expert assistant for the Parker PO OCR Dashboard - a Flask web application with Bootstrap dark theme UI for managing purchase order processing.
