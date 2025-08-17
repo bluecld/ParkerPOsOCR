@@ -1,0 +1,7 @@
+#!/usr/bin/expect -f
+
+set timeout 10
+spawn ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no admin@192.168.0.108 "ls -la /Users/Shared/"
+expect "Password:"
+send "Rynrin12\r"
+expect eof

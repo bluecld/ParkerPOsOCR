@@ -1,0 +1,31 @@
+services:
+  po-processor:
+    build: .
+    container_name: po-processor
+    network_mode: host
+    volumes:
+      # Mount your actual NAS paths here
+      - /volume1/Main/Main/ParkerPOsOCR/Scans:/app/input
+      - /volume1/Main/Main/ParkerPOsOCR/POs:/app/processed  
+      - /volume1/Main/Main/ParkerPOsOCR/Archive:/app/archive
+      - /volume1/Main/Main/ParkerPOsOCR/Errors:/app/errors
+      # Mount logs for debugging
+      - ./logs:/app/logs
+    environment:
+      - TZ=America/Los_Angeles
+      - PYTHONUNBUFFERED=1
+      # FileMaker Data API Configuration
+      - FILEMAKER_ENABLED=true  # Enable FileMaker integration
+      - FILEMAKER_SERVER=https://192.168.0.105:443
+      - FILEMAKER_DATABASE=PreInventory
+      - FILEMAKER_LAYOUT=PreInventory
+      - FILEMAKER_USERNAME=JSON
+      - FILEMAKER_PASSWORD=Windu63Purple!
+    restart: unless-stopped
+    
+    # For FileMaker integration later
+    # environment:
+    #   - FILEMAKER_SERVER=your.filemaker.server
+    #   - FILEMAKER_DATABASE=po_database
+    #   - FILEMAKER_USERNAME=api_user
+    #   - FILEMAKER_PASSWORD=secure_password

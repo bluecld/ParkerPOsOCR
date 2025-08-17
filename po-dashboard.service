@@ -1,0 +1,23 @@
+[Unit]
+Description=PO Processing Dashboard
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/volume1/Main/Main/ParkerPOsOCR/dashboard
+ExecStart=/usr/bin/python3 app.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=po-dashboard
+
+# Environment variables
+Environment=FLASK_ENV=production
+Environment=PYTHONPATH=/volume1/Main/Main/ParkerPOsOCR/dashboard
+
+[Install]
+WantedBy=multi-user.target

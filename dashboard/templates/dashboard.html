@@ -1,0 +1,2154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parker PO Processing Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Modern Nighttime Theme */
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --text-muted: #656d76;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-orange: #ff8c00;
+            --accent-red: #f85149;
+            --accent-purple: #a5a5ff;
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            --card-hover-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            min-height: 100vh;
+        }
+
+        .navbar-dark {
+            background: var(--bg-secondary) !important;
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: blur(10px);
+        }
+
+        .card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            transition: all 0.3s ease;
+        }
+
+        .status-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--card-hover-shadow);
+        }
+
+        .status-running { 
+            border-left: 4px solid var(--accent-green);
+            background: linear-gradient(135deg, var(--bg-tertiary) 0%, rgba(63, 185, 80, 0.1) 100%);
+        }
+        .status-stopped { 
+            border-left: 4px solid var(--accent-red);
+            background: linear-gradient(135deg, var(--bg-tertiary) 0%, rgba(248, 81, 73, 0.1) 100%);
+        }
+        .status-warning { 
+            border-left: 4px solid var(--accent-orange);
+            background: linear-gradient(135deg, var(--bg-tertiary) 0%, rgba(255, 140, 0, 0.1) 100%);
+        }
+
+        .card-header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .card-body {
+            color: var(--text-primary);
+        }
+
+        .activity-log {
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 0.9em;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .log-info { color: var(--accent-blue); }
+        .log-error { color: var(--accent-red); font-weight: bold; }
+        .log-warning { color: var(--accent-orange); }
+
+        .metric-value {
+            font-size: 2em;
+            font-weight: 700;
+            background: linear-gradient(45deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .progress {
+            background-color: var(--bg-primary);
+            border-radius: 8px;
+            height: 8px;
+        }
+
+        .progress-bar {
+            border-radius: 8px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+        }
+
+        .progress-bar.bg-info {
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)) !important;
+        }
+
+        .progress-bar.bg-warning {
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-red)) !important;
+        }
+
+        .table-dark {
+            --bs-table-bg: var(--bg-tertiary);
+            --bs-table-striped-bg: var(--bg-secondary);
+            --bs-table-hover-bg: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+
+        .table-dark th, .table-dark td {
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-outline-primary {
+            color: var(--accent-blue);
+            border-color: var(--accent-blue);
+            transition: all 0.3s ease;
+        }
+
+        .btn-outline-primary:hover {
+            background-color: var(--accent-blue);
+            border-color: var(--accent-blue);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+        }
+
+        .btn-outline-light {
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-outline-light:hover {
+            background-color: var(--bg-tertiary);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .badge.bg-secondary {
+            background-color: var(--bg-secondary) !important;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .badge.bg-success {
+            background: linear-gradient(45deg, var(--accent-green), #20c997) !important;
+        }
+
+        .json-link {
+            color: var(--accent-blue);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .json-link:hover {
+            color: var(--accent-purple);
+            text-decoration: underline;
+        }
+
+        .file-link {
+            color: var(--accent-blue);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .file-link:hover {
+            color: var(--accent-purple);
+            transform: translateX(2px);
+        }
+
+        .refresh-indicator {
+            display: none;
+            color: var(--accent-green);
+        }
+
+        .health-good { color: var(--accent-green); }
+        .health-warning { color: var(--accent-orange); }
+        .health-critical { color: var(--accent-red); }
+
+        .text-muted {
+            color: var(--text-muted) !important;
+        }
+
+        .text-primary {
+            color: var(--accent-blue) !important;
+        }
+
+        .modal-content {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .modal-header {
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        .modal-body {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .modal-footer {
+            border-top: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        .modal-title {
+            color: var(--text-primary) !important;
+        }
+
+        /* Fix modal table styling */
+        .modal .table {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        .modal .table td, .modal .table th {
+            border-color: var(--border-color);
+            color: var(--text-primary) !important;
+        }
+
+        .modal .table-sm td {
+            padding: 0.5rem;
+        }
+
+        /* Fix modal pre styling */
+        .modal pre {
+            background: var(--bg-primary) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 0.8em;
+        }
+
+        /* Fix modal text elements */
+        .modal h6 {
+            color: var(--text-primary) !important;
+        }
+
+        .modal strong {
+            color: var(--text-primary) !important;
+        }
+
+        .modal small {
+            color: var(--text-secondary) !important;
+        }
+
+        .modal .text-muted {
+            color: var(--text-muted) !important;
+        }
+
+        .btn-close {
+            filter: invert(1);
+        }
+
+        /* Tab styling for dark theme */
+        .nav-tabs {
+            border-bottom: 1px solid var(--border-color) !important;
+        }
+
+        .nav-tabs .nav-link {
+            color: var(--text-secondary) !important;
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            border-top-left-radius: 0.375rem !important;
+            border-top-right-radius: 0.375rem !important;
+        }
+
+        .nav-tabs .nav-link:hover {
+            color: var(--accent-blue) !important;
+            background: var(--bg-primary) !important;
+            border-color: var(--border-color) !important;
+        }
+
+        .nav-tabs .nav-link.active {
+            color: var(--text-primary) !important;
+            background: var(--bg-primary) !important;
+            border-color: var(--border-color) var(--border-color) var(--bg-primary) !important;
+        }
+
+        .tab-content {
+            background: transparent;
+        }
+
+        /* Form styling improvements */
+        .form-control:focus {
+            background: var(--bg-secondary) !important;
+            border-color: var(--accent-blue) !important;
+            box-shadow: 0 0 0 0.2rem rgba(88, 166, 255, 0.25) !important;
+            color: var(--text-primary) !important;
+        }
+
+        .form-label {
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Alert styling */
+        .alert {
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Preview card styling */
+        .preview-card {
+            background: var(--bg-primary) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .preview-card h6 {
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+        }
+
+        /* File item styling */
+        .file-item {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            transition: all 0.2s ease;
+        }
+
+        .file-item:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent-blue);
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Sticky table header */
+        .table-responsive thead.sticky-top th {
+            background: var(--bg-secondary) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+            z-index: 10;
+            position: sticky !important;
+            top: 0;
+        }
+
+        /* Improved table scrolling */
+        .table-responsive {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .table-responsive::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(to right, transparent, var(--accent-blue), transparent);
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .table-responsive::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .table-responsive::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Glow effects */
+        .fas.fa-docker.text-success {
+            color: var(--accent-green) !important;
+            filter: drop-shadow(0 0 8px rgba(63, 185, 80, 0.5));
+        }
+
+        .fas.fa-docker.text-danger {
+            color: var(--accent-red) !important;
+            filter: drop-shadow(0 0 8px rgba(248, 81, 73, 0.5));
+        }
+
+        /* Animation for refresh indicator */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .refresh-indicator {
+            animation: spin 1s linear infinite;
+        }
+
+        /* Notification Styles */
+        .notification-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: var(--card-hover-shadow);
+            min-width: 350px;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 1050;
+            display: none;
+        }
+
+        .notification-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            border-radius: 12px 12px 0 0;
+        }
+
+        .notification-item {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.3s ease;
+            cursor: pointer;
+        }
+
+        .notification-item:hover {
+            background: var(--bg-secondary);
+        }
+
+        .notification-item:last-child {
+            border-bottom: none;
+            border-radius: 0 0 12px 12px;
+        }
+
+        .notification-item.unread {
+            background: rgba(88, 166, 255, 0.1);
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .notification-time {
+            font-size: 0.85em;
+            color: var(--text-muted);
+        }
+
+        .notification-badge-animate {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1055;
+        }
+
+        .toast {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            min-width: 300px;
+        }
+
+        .toast-header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .toast .btn-close {
+            filter: invert(1);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-file-pdf"></i> Parker PO Processing Dashboard
+            </span>
+            <div class="d-flex align-items-center">
+                <!-- Notification Bell -->
+                <div class="position-relative me-3">
+                    <button class="btn btn-outline-light btn-sm position-relative" id="notificationBell" onclick="toggleNotifications()" title="Notifications">
+                        <i class="fas fa-bell"></i>
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="notificationBadge" style="display: none;">
+                            0
+                        </span>
+                    </button>
+                </div>
+                <!-- Notification Settings Button -->
+                <div class="position-relative me-3">
+                    <button class="btn btn-outline-info btn-sm" onclick="openNotificationSettings()" title="Notification Settings">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+                <!-- Test Notification Button -->
+                <div class="position-relative me-3">
+                    <button class="btn btn-outline-warning btn-sm" onclick="testNotifications()" title="Test Notifications">
+                        <i class="fas fa-vial"></i>
+                    </button>
+                </div>
+                <span class="text-light me-3">
+                    <i class="fas fa-sync-alt refresh-indicator" id="refreshIndicator"></i>
+                    Last Updated: <span id="lastUpdated">--</span>
+                </span>
+                <button class="btn btn-outline-light btn-sm" onclick="refreshData()">
+                    <i class="fas fa-refresh"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Notification Dropdown -->
+    <div class="position-relative">
+        <div class="notification-dropdown" id="notificationDropdown">
+            <div class="notification-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="fas fa-bell me-2"></i>Notifications</h6>
+                    <button class="btn btn-sm btn-outline-light" onclick="clearAllNotifications()">Clear All</button>
+                </div>
+            </div>
+            <div id="notificationList">
+                <div class="notification-item text-center text-muted">
+                    <i class="fas fa-inbox fa-2x mb-2"></i>
+                    <div>No new notifications</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="container-fluid mt-4">
+        <!-- System Status Row -->
+        <div class="row mb-4">
+            <div class="col-md-2">
+                <div class="card status-card" id="containerCard">
+                    <div class="card-body text-center">
+                        <i class="fas fa-docker fa-2x mb-2" id="containerIcon"></i>
+                        <h5 class="card-title">Container Status</h5>
+                        <p class="card-text" id="containerStatus">Loading...</p>
+                        <small class="text-muted" id="containerUptime"></small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card status-card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-queue fa-2x text-warning mb-2"></i>
+                        <h5 class="card-title">Files in Queue</h5>
+                        <p class="card-text metric-value" id="queueCount">0</p>
+                        <small class="text-muted">Waiting for processing</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card status-card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                        <h5 class="card-title">Completed POs</h5>
+                        <p class="card-text metric-value" id="completedCount">0</p>
+                        <small class="text-muted">Successfully processed</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card status-card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-exclamation-triangle fa-2x text-danger mb-2"></i>
+                        <h5 class="card-title">Errors</h5>
+                        <p class="card-text metric-value" id="errorCount">0</p>
+                        <small class="text-muted">Failed processing</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics Row -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-tachometer-alt"></i> Performance Metrics</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">CPU Usage</small>
+                                <div class="progress mb-2">
+                                    <div class="progress-bar" id="cpuProgress" style="width: 0%"></div>
+                                </div>
+                                <small id="cpuValue">0%</small>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Memory Usage</small>
+                                <div class="progress mb-2">
+                                    <div class="progress-bar bg-info" id="memoryProgress" style="width: 0%"></div>
+                                </div>
+                                <small id="memoryValue">0%</small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <small class="text-muted">Disk Usage</small>
+                                <div class="progress mb-2">
+                                    <div class="progress-bar bg-warning" id="diskProgress" style="width: 0%"></div>
+                                </div>
+                                <small id="diskValue">0% used</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-activity"></i> Recent Activity</h6>
+                    </div>
+                    <div class="card-body activity-log" id="activityLog">
+                        Loading activity...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Completed Files and System Health -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="fas fa-folder-open"></i> Completed POs 
+                            <span class="badge bg-primary ms-2" id="completedCountBadge">0</span>
+                        </h6>
+                        <button class="btn btn-sm btn-outline-primary" onclick="exportToFileMaker()">
+                            <i class="fas fa-database"></i> Export to FileMaker
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-sm table-hover table-dark mb-0">
+                                <thead class="sticky-top">
+                                    <tr>
+                                        <th>PO Number</th>
+                                        <th>Completed</th>
+                                        <th>JSON Data</th>
+                                        <th>PDF Files</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="completedTable">
+                                    <tr><td colspan="5" class="text-center">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-heartbeat"></i> System Health</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between">
+                                    <span>Container Health</span>
+                                    <span id="containerHealth" class="health-good">
+                                        <i class="fas fa-check-circle"></i> Good
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between">
+                                    <span>File Processing</span>
+                                    <span id="processingHealth" class="health-good">
+                                        <i class="fas fa-check-circle"></i> Active
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between">
+                                    <span>Restart Policy</span>
+                                    <span id="restartPolicy" class="health-good">
+                                        <i class="fas fa-shield-alt"></i> Auto
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between">
+                                    <span>System Uptime</span>
+                                    <span id="systemUptime" class="text-muted">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-12">
+                                <button class="btn btn-sm btn-warning w-100 mb-2" onclick="restartContainer()">
+                                    <i class="fas fa-redo"></i> Restart Container
+                                </button>
+                                <button class="btn btn-sm btn-info w-100" onclick="viewFullLogs()">
+                                    <i class="fas fa-file-alt"></i> View Full Logs
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FileMaker Export Modal -->
+    <div class="modal fade" id="fileMakerModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Export to FileMaker ERP</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Prepare data for FileMaker integration:</p>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="exportJSON" checked>
+                        <label class="form-check-label" for="exportJSON">
+                            Include JSON metadata
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="exportPDFs" checked>
+                        <label class="form-check-label" for="exportPDFs">
+                            Include PDF file references
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="exportStats" checked>
+                        <label class="form-check-label" for="exportStats">
+                            Include processing statistics
+                        </label>
+                    </div>
+                    <hr>
+                    <small class="text-muted">
+                        This will generate a FileMaker-compatible JSON export for your ERP system.
+                    </small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="generateFileMakerExport()">
+                        Generate Export
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Modal -->
+    <div class="modal fade" id="logsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">System Logs</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <pre id="fullLogs" style="height: 400px; overflow-y: auto; font-size: 0.8em;">Loading logs...</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Settings Modal -->
+    <div class="modal fade" id="notificationSettingsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-bell me-2"></i>Notification Settings</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Email Notifications -->
+                        <div class="col-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="emailEnabled">
+                                        <label class="form-check-label" for="emailEnabled">
+                                            <strong><i class="fas fa-envelope me-2"></i>Email Notifications</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="card-body" id="emailSettings">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label">SMTP Server</label>
+                                            <input type="text" class="form-control" id="emailServer" placeholder="smtp.gmail.com">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">SMTP Port</label>
+                                            <input type="number" class="form-control" id="emailPort" placeholder="587">
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Email Address</label>
+                                            <input type="email" class="form-control" id="emailUsername" placeholder="your-email@gmail.com">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">App Password</label>
+                                            <input type="password" class="form-control" id="emailPassword" placeholder="App-specific password">
+                                        </div>
+                                    </div>
+                                    <div class="mt-3">
+                                        <label class="form-label">Send To</label>
+                                        <input type="text" class="form-control" id="emailRecipients" placeholder="phone@gmail.com, other@email.com">
+                                        <small class="text-muted">Separate multiple emails with commas</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pushover Notifications -->
+                        <div class="col-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="pushoverEnabled">
+                                        <label class="form-check-label" for="pushoverEnabled">
+                                            <strong><i class="fas fa-mobile-alt me-2"></i>Pushover (Recommended for Phone)</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="card-body" id="pushoverSettings">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label">User Key</label>
+                                            <input type="text" class="form-control" id="pushoverUserKey" placeholder="Your Pushover user key">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">API Token</label>
+                                            <input type="text" class="form-control" id="pushoverApiToken" placeholder="Your Pushover app token">
+                                        </div>
+                                    </div>
+                                    <small class="text-muted">
+                                        <strong>Pushover is the easiest way to get notifications on your phone!</strong><br>
+                                        1. Install Pushover app from App Store/Google Play<br>
+                                        2. Sign up and get your User Key<br>
+                                        3. Create an app and get your API Token
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Telegram Notifications -->
+                        <div class="col-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="telegramEnabled">
+                                        <label class="form-check-label" for="telegramEnabled">
+                                            <strong><i class="fab fa-telegram me-2"></i>Telegram Notifications</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="card-body" id="telegramSettings">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Bot Token</label>
+                                            <input type="text" class="form-control" id="telegramBotToken" placeholder="Bot token from @BotFather">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Chat ID</label>
+                                            <input type="text" class="form-control" id="telegramChatId" placeholder="Your chat ID">
+                                        </div>
+                                    </div>
+                                    <small class="text-muted">
+                                        1. Create a bot with @BotFather on Telegram<br>
+                                        2. Get your Chat ID by messaging @userinfobot
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Webhook Notifications -->
+                        <div class="col-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="webhookEnabled">
+                                        <label class="form-check-label" for="webhookEnabled">
+                                            <strong><i class="fas fa-link me-2"></i>Webhook Notifications (IFTTT/Zapier)</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="card-body" id="webhookSettings">
+                                    <label class="form-label">Webhook URLs</label>
+                                    <textarea class="form-control" id="webhookUrls" rows="3" placeholder="https://maker.ifttt.com/trigger/po_processed/with/key/YOUR_KEY
+https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK"></textarea>
+                                    <small class="text-muted">Enter one webhook URL per line. Great for IFTTT applets or Zapier zaps!</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-warning" onclick="testNotifications()">
+                        <i class="fas fa-vial me-2"></i>Test Notifications
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveNotificationSettings()">
+                        <i class="fas fa-save me-2"></i>Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let refreshInterval;
+        
+        // Notification system variables
+        let notifications = [];
+        let lastProcessedCount = 0;
+        let knownProcessedFiles = new Set();
+        let notificationDropdownVisible = false;
+        let hasNewNotifications = false;
+
+        function updateLastRefresh() {
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+        }
+
+        function showRefreshIndicator() {
+            const indicator = document.getElementById('refreshIndicator');
+            indicator.style.display = 'inline';
+            setTimeout(() => {
+                indicator.style.display = 'none';
+            }, 1000);
+        }
+
+        async function fetchData(endpoint) {
+            try {
+                const response = await fetch(`/api/${endpoint}`);
+                return await response.json();
+            } catch (error) {
+                console.error(`Error fetching ${endpoint}:`, error);
+                return null;
+            }
+        }
+
+        async function updateContainerStatus() {
+            const status = await fetchData('status');
+            if (status) {
+                const card = document.getElementById('containerCard');
+                const icon = document.getElementById('containerIcon');
+                const statusText = document.getElementById('containerStatus');
+                const uptime = document.getElementById('containerUptime');
+                const health = document.getElementById('containerHealth');
+                const restartPolicy = document.getElementById('restartPolicy');
+
+                if (status.status === 'running') {
+                    card.className = 'card status-card status-running';
+                    icon.className = 'fas fa-docker fa-2x text-success mb-2';
+                    statusText.textContent = 'Running';
+                    health.innerHTML = '<i class="fas fa-check-circle"></i> Good';
+                    health.className = 'health-good';
+                } else {
+                    card.className = 'card status-card status-stopped';
+                    icon.className = 'fas fa-docker fa-2x text-danger mb-2';
+                    statusText.textContent = status.status || 'Stopped';
+                    health.innerHTML = '<i class="fas fa-times-circle"></i> Down';
+                    health.className = 'health-critical';
+                }
+
+                if (status.started_at) {
+                    const startTime = new Date(status.started_at);
+                    uptime.textContent = `Started: ${startTime.toLocaleString()}`;
+                }
+
+                if (status.restart_policy) {
+                    restartPolicy.textContent = status.restart_policy;
+                }
+
+                // Update performance metrics
+                if (status.cpu_percent !== undefined) {
+                    document.getElementById('cpuProgress').style.width = `${status.cpu_percent}%`;
+                    document.getElementById('cpuValue').textContent = `${status.cpu_percent}%`;
+                }
+
+                if (status.memory_percent !== undefined) {
+                    document.getElementById('memoryProgress').style.width = `${status.memory_percent}%`;
+                    document.getElementById('memoryValue').textContent = `${status.memory_percent}% (${status.memory_usage_mb} MB)`;
+                }
+            }
+        }
+
+        async function updateStats() {
+            const stats = await fetchData('stats');
+            if (stats) {
+                document.getElementById('queueCount').textContent = stats.files_in_queue;
+                document.getElementById('completedCount').textContent = stats.completed_pos;
+                document.getElementById('errorCount').textContent = stats.error_files;
+            }
+        }
+
+        async function updateActivity() {
+            const activities = await fetchData('activity');
+            if (activities) {
+                const log = document.getElementById('activityLog');
+                log.innerHTML = '';
+                
+                activities.forEach(activity => {
+                    const div = document.createElement('div');
+                    div.className = `log-${activity.level.toLowerCase()}`;
+                    div.innerHTML = `<small class="text-muted">${activity.timestamp}</small> [${activity.level}] ${activity.message}`;
+                    log.appendChild(div);
+                });
+                
+                log.scrollTop = log.scrollHeight;
+            }
+        }
+
+        async function updateCompleted() {
+            const completed = await fetchData('completed');
+            if (completed) {
+                // Check for new processed files and trigger notifications
+                checkForNewProcessedFiles({ files: completed });
+                
+                const table = document.getElementById('completedTable');
+                const countBadge = document.getElementById('completedCountBadge');
+                
+                table.innerHTML = '';
+                countBadge.textContent = completed.length;
+                
+                if (completed.length === 0) {
+                    table.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No completed files yet</td></tr>';
+                    countBadge.textContent = '0';
+                    return;
+                }
+                
+                completed.forEach(item => {
+                    const row = document.createElement('tr');
+                    
+                    const jsonLinks = item.json_files.map(json => 
+                        `<a href="/api/json/${item.po_number}/${json.name}" class="json-link" target="_blank">${json.name}</a>`
+                    ).join('<br>');
+                    
+                    const pdfCount = item.pdf_files.length;
+                    
+                    row.innerHTML = `
+                        <td><strong>${item.po_number}</strong></td>
+                        <td><small>${item.created}</small></td>
+                        <td>${jsonLinks || '<em>No JSON</em>'}</td>
+                        <td><span class="badge bg-secondary">${pdfCount} PDF(s)</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="viewPODetails('${item.po_number}')">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </td>
+                    `;
+                    table.appendChild(row);
+                });
+            }
+        }
+
+        async function updateHealth() {
+            const health = await fetchData('health');
+            if (health) {
+                if (health.disk_usage && health.disk_usage.percent) {
+                    document.getElementById('diskProgress').style.width = `${health.disk_usage.percent}%`;
+                    document.getElementById('diskValue').textContent = `${health.disk_usage.percent}% used (${health.disk_usage.free_gb} GB free)`;
+                }
+                
+                if (health.uptime) {
+                    document.getElementById('systemUptime').textContent = health.uptime;
+                }
+            }
+        }
+
+        async function refreshData() {
+            console.log('refreshData called');
+            showRefreshIndicator();
+            await Promise.all([
+                updateContainerStatus(),
+                updateStats(),
+                updateActivity(),
+                updateCompleted(),
+                updateHealth()
+            ]);
+            updateLastRefresh();
+            console.log('refreshData completed');
+        }
+
+        async function restartContainer() {
+            if (confirm('Are you sure you want to restart the container?')) {
+                try {
+                    const response = await fetch('/api/restart');
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        alert('Container restart initiated');
+                        setTimeout(() => refreshData(), 3000);
+                    } else {
+                        alert('Failed to restart container: ' + result.message);
+                    }
+                } catch (error) {
+                    alert('Error restarting container: ' + error.message);
+                }
+            }
+        }
+
+        async function viewFullLogs() {
+            try {
+                const logs = await fetchData('logs');
+                const logsElement = document.getElementById('fullLogs');
+                
+                if (logs && logs.logs) {
+                    logsElement.textContent = logs.logs.join('\n');
+                } else {
+                    logsElement.textContent = 'No logs available';
+                }
+                
+                new bootstrap.Modal(document.getElementById('logsModal')).show();
+            } catch (error) {
+                alert('Error loading logs: ' + error.message);
+            }
+        }
+
+        function exportToFileMaker() {
+            new bootstrap.Modal(document.getElementById('fileMakerModal')).show();
+        }
+
+        async function generateFileMakerExport() {
+            // This would generate a FileMaker-compatible export
+            const exportData = {
+                timestamp: new Date().toISOString(),
+                completed_pos: await fetchData('completed'),
+                stats: await fetchData('stats'),
+                health: await fetchData('health')
+            };
+            
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `po_export_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            
+            bootstrap.Modal.getInstance(document.getElementById('fileMakerModal')).hide();
+        }
+
+        async function viewPODetails(poNumber) {
+            console.log('viewPODetails called with PO:', poNumber);
+            try {
+                const response = await fetch(`/api/po/${poNumber}`);
+                console.log('API response status:', response.status);
+                const poData = await response.json();
+                console.log('PO Data received:', poData);
+                
+                if (poData.error) {
+                    alert(`Error loading PO details: ${poData.error}`);
+                    return;
+                }
+                
+                // Create a detailed view modal with FileMaker preview
+                const modalHTML = `
+                    <div class="modal fade" id="poDetailsModal" tabindex="-1">
+                        <div class="modal-dialog modal-xl">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">PO Details: ${poNumber}</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body" style="background: var(--bg-tertiary); color: var(--text-primary);">
+                                    <!-- Nav tabs -->
+                                    <ul class="nav nav-tabs" id="poTabs" role="tablist" style="border-bottom: 1px solid var(--border-color);">
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab" style="color: var(--text-primary); background: transparent; border: none;">
+                                                <i class="fas fa-info-circle"></i> Overview
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link" id="filemaker-tab" data-bs-toggle="tab" data-bs-target="#filemaker" type="button" role="tab" style="color: var(--text-primary); background: transparent; border: none;">
+                                                <i class="fas fa-database"></i> FileMaker Preview
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link" id="files-tab" data-bs-toggle="tab" data-bs-target="#files" type="button" role="tab" style="color: var(--text-primary); background: transparent; border: none;">
+                                                <i class="fas fa-folder"></i> Files
+                                            </button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link" id="raw-tab" data-bs-toggle="tab" data-bs-target="#raw" type="button" role="tab" style="color: var(--text-primary); background: transparent; border: none;">
+                                                <i class="fas fa-code"></i> Raw Data
+                                            </button>
+                                        </li>
+                                    </ul>
+
+                                    <!-- Tab content -->
+                                    <div class="tab-content mt-3" id="poTabContent">
+                                        <!-- Overview Tab -->
+                                        <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <h6 style="color: var(--text-primary);"><i class="fas fa-info-circle"></i> Basic Information</h6>
+                                                    <table class="table table-sm" style="color: var(--text-primary);">
+                                                        <tr><td><strong style="color: var(--text-primary);">PO Number:</strong></td><td style="color: var(--text-primary);">${poData.po_number || poData.purchase_order_number || 'N/A'}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Part Number:</strong></td><td style="color: var(--text-primary);">${poData.part_number || 'N/A'}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Quantity:</strong></td><td style="color: var(--text-primary);">${poData.quantity || 'N/A'}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Work Order:</strong></td><td style="color: var(--text-primary);">${poData.production_order || poData.mjo_number || 'N/A'}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Buyer:</strong></td><td style="color: var(--text-primary);">${poData.buyer_name || poData.planner_name || 'N/A'}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Dock Date:</strong></td><td style="color: var(--text-primary);">${poData.dock_date || poData.delivery_date || 'N/A'}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Processed:</strong></td><td style="color: var(--text-primary);">${poData.created || 'N/A'}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Status:</strong></td><td><span class="badge bg-success">Completed</span></td></tr>
+                                                    </table>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <h6 style="color: var(--text-primary);"><i class="fas fa-chart-bar"></i> File Summary</h6>
+                                                    <table class="table table-sm" style="color: var(--text-primary);">
+                                                        <tr><td><strong style="color: var(--text-primary);">PDF Files:</strong></td><td style="color: var(--text-primary);">${poData.pdf_files?.length || 0}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">JSON Files:</strong></td><td style="color: var(--text-primary);">${poData.json_files?.length || 0}</td></tr>
+                                                        <tr><td><strong style="color: var(--text-primary);">Text Files:</strong></td><td style="color: var(--text-primary);">${poData.text_files?.length || 0}</td></tr>
+                                                    </table>
+                                                    
+                                                    <div class="mt-3">
+                                                        <h6 style="color: var(--text-primary);"><i class="fas fa-tools"></i> Quick Actions</h6>
+                                                        <div class="d-grid gap-2">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="switchToFileMakerTab()">
+                                                                <i class="fas fa-database"></i> Preview FileMaker Data
+                                                            </button>
+                                                            <button type="button" class="btn btn-outline-success btn-sm" onclick="downloadPOData('${poNumber}')">
+                                                                <i class="fas fa-download"></i> Download JSON
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- FileMaker Preview Tab -->
+                                        <div class="tab-pane fade" id="filemaker" role="tabpanel">
+                                            <div class="row">
+                                                <div class="col-md-8">
+                                                    <h6 style="color: var(--text-primary);">
+                                                        <i class="fas fa-database"></i> FileMaker Record Preview
+                                                        <small class="text-muted ms-2" style="color: var(--text-secondary) !important;">Edit the extracted data before submitting</small>
+                                                    </h6>
+                                                    
+                                                    <div class="card" style="background: var(--bg-primary); border: 1px solid var(--border-color);">
+                                                        <div class="card-body">
+                                                            <form id="fileMakerForm-${poNumber}">
+                                                                <div class="row">
+                                                                    <div class="col-md-6">
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label" style="color: var(--text-primary);"><strong>PO Number:</strong></label>
+                                                                            <input type="text" class="form-control" id="fm-po-number-${poNumber}" 
+                                                                                   value="${poData.purchase_order_number || poData.po_number || ''}" 
+                                                                                   style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                                                        </div>
+                                                                        
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label" style="color: var(--text-primary);"><strong>Part Number:</strong></label>
+                                                                            <input type="text" class="form-control" id="fm-part-number-${poNumber}" 
+                                                                                   value="${poData.part_number || ''}" 
+                                                                                   style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                                                        </div>
+                                                                        
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label" style="color: var(--text-primary);"><strong>Quantity:</strong></label>
+                                                                            <input type="text" class="form-control" id="fm-quantity-${poNumber}" 
+                                                                                   value="${poData.quantity || ''}" 
+                                                                                   style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                                                        </div>
+                                                                    </div>
+                                                                    
+                                                                    <div class="col-md-6">
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label" style="color: var(--text-primary);"><strong>Work Order (MJO):</strong></label>
+                                                                            <input type="text" class="form-control" id="fm-work-order-${poNumber}" 
+                                                                                   value="${poData.production_order || poData.mjo_number || ''}" 
+                                                                                   style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                                                        </div>
+                                                                        
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label" style="color: var(--text-primary);"><strong>Planner/Buyer:</strong></label>
+                                                                            <input type="text" class="form-control" id="fm-buyer-name-${poNumber}" 
+                                                                                   value="${poData.buyer_name || poData.planner_name || ''}" 
+                                                                                   style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                                                        </div>
+                                                                        
+                                                                        <div class="mb-3">
+                                                                            <label class="form-label" style="color: var(--text-primary);"><strong>Delivery Date:</strong></label>
+                                                                            <input type="text" class="form-control" id="fm-delivery-date-${poNumber}" 
+                                                                                   value="${poData.dock_date || poData.delivery_date || ''}" 
+                                                                                   style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <div class="mb-3">
+                                                                    <label class="form-label" style="color: var(--text-primary);"><strong>Source File:</strong></label>
+                                                                    <input type="text" class="form-control" id="fm-source-file-${poNumber}" 
+                                                                           value="${poData.source_file || poNumber + '.pdf'}" 
+                                                                           style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);" readonly>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="col-md-4">
+                                                    <h6 style="color: var(--text-primary);">
+                                                        <i class="fas fa-lightbulb"></i> OCR Extraction Tips
+                                                    </h6>
+                                                    
+                                                    <div class="alert" style="background: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-secondary); font-size: 0.85em;">
+                                                        <p><strong style="color: var(--text-primary);">Review the extracted data:</strong></p>
+                                                        <ul class="mb-2">
+                                                            <li>Check PO number accuracy</li>
+                                                            <li>Verify part number format</li>
+                                                            <li>Confirm quantity is numeric</li>
+                                                            <li>Validate work order number</li>
+                                                            <li>Check buyer name spelling</li>
+                                                        </ul>
+                                                        
+                                                        <p><strong style="color: var(--text-primary);">Common OCR Issues:</strong></p>
+                                                        <ul class="mb-0">
+                                                            <li>Numbers: 0/O, 1/I/l, 5/S</li>
+                                                            <li>Letters: rn/m, cl/d</li>
+                                                            <li>Special chars: -/_ confusion</li>
+                                                        </ul>
+                                                    </div>
+                                                    
+                                                    <div class="d-grid gap-2">
+                                                        <button type="button" class="btn btn-outline-warning btn-sm" onclick="resetFileMakerForm('${poNumber}')">
+                                                            <i class="fas fa-undo"></i> Reset to Original
+                                                        </button>
+                                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="previewFileMakerData('${poNumber}')">
+                                                            <i class="fas fa-eye"></i> Preview Changes
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Files Tab -->
+                                        <div class="tab-pane fade" id="files" role="tabpanel">
+                                            <div class="row">
+                                                <div class="col-md-6">
+                                                    <h6 style="color: var(--text-primary);"><i class="fas fa-file-pdf"></i> PDF Files</h6>
+                                                    <div class="mb-3">
+                                                        ${poData.pdf_files?.map(pdf => `
+                                                            <div class="mb-2 p-2" style="border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--bg-primary);">
+                                                                <a href="/api/po/${poNumber}/file/${pdf.name || pdf}" target="_blank" class="file-link d-block">
+                                                                    <i class="fas fa-file-pdf text-danger me-2"></i>
+                                                                    <span style="color: var(--accent-blue);">${pdf.name || pdf}</span>
+                                                                </a>
+                                                                ${pdf.size ? `<small class="text-muted" style="color: var(--text-muted) !important;">Size: ${(pdf.size / 1024 / 1024).toFixed(2)} MB</small>` : ''}
+                                                                ${pdf.modified ? `<small class="text-muted ms-2" style="color: var(--text-muted) !important;">Modified: ${new Date(pdf.modified).toLocaleString()}</small>` : ''}
+                                                            </div>
+                                                        `).join('') || '<div class="text-center text-muted" style="color: var(--text-muted) !important; padding: 2rem;">No PDF files found</div>'}
+                                                    </div>
+                                                    
+                                                    <h6 style="color: var(--text-primary);"><i class="fas fa-file-alt"></i> Text Files</h6>
+                                                    <div class="mb-3">
+                                                        ${poData.text_files?.map(txt => `
+                                                            <div class="mb-2 p-2" style="border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--bg-primary);">
+                                                                <a href="/api/po/${poNumber}/file/${txt.name || txt}" target="_blank" class="file-link d-block">
+                                                                    <i class="fas fa-file-alt text-info me-2"></i>
+                                                                    <span style="color: var(--accent-blue);">${txt.name || txt}</span>
+                                                                </a>
+                                                                ${txt.size ? `<small class="text-muted" style="color: var(--text-muted) !important;">Size: ${(txt.size / 1024).toFixed(1)} KB</small>` : ''}
+                                                                ${txt.modified ? `<small class="text-muted ms-2" style="color: var(--text-muted) !important;">Modified: ${new Date(txt.modified).toLocaleString()}</small>` : ''}
+                                                            </div>
+                                                        `).join('') || '<div class="text-center text-muted" style="color: var(--text-muted) !important; padding: 2rem;">Check extracted_text.txt for OCR results</div>'}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="col-md-6">
+                                                    <h6 style="color: var(--text-primary);"><i class="fas fa-file-code"></i> JSON Data Files</h6>
+                                                    <div class="mb-3">
+                                                        ${poData.json_files?.map(json => `
+                                                            <div class="mb-2 p-2" style="border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--bg-primary);">
+                                                                <a href="/api/po/${poNumber}/file/${json.name || json}" target="_blank" class="file-link d-block">
+                                                                    <i class="fas fa-file-code text-warning me-2"></i>
+                                                                    <span style="color: var(--accent-blue);">${json.name || json}</span>
+                                                                </a>
+                                                                ${json.size ? `<small class="text-muted" style="color: var(--text-muted) !important;">Size: ${(json.size / 1024).toFixed(1)} KB</small>` : ''}
+                                                                <div class="mt-1">
+                                                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="previewJSON('${poNumber}', '${json.name || json}')">
+                                                                        <i class="fas fa-eye"></i> Preview
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        `).join('') || '<div class="text-center text-muted" style="color: var(--text-muted) !important; padding: 2rem;">No JSON files found</div>'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Raw Data Tab -->
+                                        <div class="tab-pane fade" id="raw" role="tabpanel">
+                                            <h6 style="color: var(--text-primary);"><i class="fas fa-code"></i> Complete JSON Data</h6>
+                                            <pre id="rawDataContent" style="max-height: 400px; overflow-y: auto; background: var(--bg-primary) !important; color: var(--text-primary) !important; padding: 1rem; border-radius: 0.375rem; font-size: 0.8em; border: 1px solid var(--border-color);"></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer" style="background: var(--bg-tertiary); border-top: 1px solid var(--border-color);">
+                                    <div class="form-check me-auto">
+                                        <input class="form-check-input" type="checkbox" id="forceResubmit-${poNumber}">
+                                        <label class="form-check-label" for="forceResubmit-${poNumber}" style="color: var(--text-secondary); font-size: 0.9em;">
+                                            Force resubmit if already exists
+                                        </label>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                    <button type="button" class="btn btn-success" onclick="createFileMakerRecordFromForm('${poNumber}')" title="Create record in FileMaker database with edited data">
+                                        <i class="fas fa-database"></i> Submit to FileMaker
+                                    </button>
+                                    <button type="button" class="btn btn-primary" onclick="downloadPOData('${poNumber}')">
+                                        <i class="fas fa-download"></i> Download JSON
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Remove existing modal if present
+                const existingModal = document.getElementById('poDetailsModal');
+                if (existingModal) {
+                    existingModal.remove();
+                }
+                
+                // Add new modal to body
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+                
+                // Populate the raw data content after modal is created
+                const rawDataElement = document.getElementById('rawDataContent');
+                if (rawDataElement) {
+                    rawDataElement.textContent = JSON.stringify(poData, null, 2);
+                }
+                
+                // Show the modal
+                new bootstrap.Modal(document.getElementById('poDetailsModal')).show();
+                
+            } catch (error) {
+                alert(`Error loading PO details: ${error.message}`);
+            }
+        }
+        
+        function downloadPOData(poNumber) {
+            // Download the complete PO data as JSON
+            window.open(`/api/po/${poNumber}/download`, '_blank');
+        }
+
+        async function createFileMakerRecord(poNumber) {
+            try {
+                // Check if force resubmit is selected
+                const forceResubmit = document.getElementById(`forceResubmit-${poNumber}`).checked;
+                
+                // Show loading state
+                const button = event.target.closest('button');
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+                button.disabled = true;
+                
+                const response = await fetch(`/api/filemaker/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        po_number: poNumber,
+                        force_resubmit: forceResubmit
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Restore button state
+                button.innerHTML = originalText;
+                button.disabled = false;
+                
+                if (response.ok && result.success) {
+                    addNotification('FileMaker Record Created', `✅ PO ${poNumber} record created successfully!`, 'success');
+                    showToast('FileMaker Record Created', `✅ PO ${poNumber} record created successfully!`, 'success');
+                    
+                    // Close the modal
+                    bootstrap.Modal.getInstance(document.getElementById('poDetailsModal')).hide();
+                } else {
+                    addNotification('FileMaker Error', `❌ ${result.error || `Failed to create record for PO ${poNumber}`}`, 'error');
+                    showToast('FileMaker Error', `❌ ${result.error || `Failed to create record for PO ${poNumber}`}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error creating FileMaker record:', error);
+                
+                // Restore button state
+                const button = event.target.closest('button');
+                button.innerHTML = '<i class="fas fa-database"></i> Create Record';
+                button.disabled = false;
+                
+                addNotification('FileMaker Error', `❌ Error creating record: ${error.message}`, 'error');
+                showToast('FileMaker Error', `❌ Error creating record: ${error.message}`, 'error');
+            }
+        }
+
+        // New FileMaker Preview Functions
+        function switchToFileMakerTab() {
+            const tab = document.getElementById('filemaker-tab');
+            const tabInstance = new bootstrap.Tab(tab);
+            tabInstance.show();
+        }
+
+        function resetFileMakerForm(poNumber) {
+            // Reload the original data by fetching the PO details again
+            viewPODetails(poNumber);
+            showToast('Form Reset', 'FileMaker form reset to original values', 'info');
+        }
+
+        function previewFileMakerData(poNumber) {
+            const formData = getFileMakerFormData(poNumber);
+            const previewHTML = `
+                <div class="modal fade" id="previewModal" tabindex="-1">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content" style="background: var(--bg-tertiary);">
+                            <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                                <h5 class="modal-title" style="color: var(--text-primary);">FileMaker Data Preview</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body" style="color: var(--text-primary);">
+                                <h6><i class="fas fa-database"></i> Data that will be sent to FileMaker:</h6>
+                                <table class="table table-sm" style="color: var(--text-primary);">
+                                    <tr><td><strong>PO Number:</strong></td><td>${formData.po_number}</td></tr>
+                                    <tr><td><strong>Part Number:</strong></td><td>${formData.part_number}</td></tr>
+                                    <tr><td><strong>Quantity:</strong></td><td>${formData.quantity}</td></tr>
+                                    <tr><td><strong>Work Order:</strong></td><td>${formData.work_order}</td></tr>
+                                    <tr><td><strong>Buyer/Planner:</strong></td><td>${formData.buyer_name}</td></tr>
+                                    <tr><td><strong>Delivery Date:</strong></td><td>${formData.delivery_date}</td></tr>
+                                    <tr><td><strong>Source File:</strong></td><td>${formData.source_file}</td></tr>
+                                </table>
+                                <div class="alert" style="background: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-secondary);">
+                                    <i class="fas fa-info-circle"></i> Review the data above before submitting to FileMaker. You can close this preview and make changes if needed.
+                                </div>
+                            </div>
+                            <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close Preview</button>
+                                <button type="button" class="btn btn-success" onclick="createFileMakerRecordFromForm('${poNumber}'); $('#previewModal').modal('hide');">
+                                    <i class="fas fa-database"></i> Submit to FileMaker
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Remove existing preview modal
+            const existingPreview = document.getElementById('previewModal');
+            if (existingPreview) {
+                existingPreview.remove();
+            }
+            
+            // Add and show preview
+            document.body.insertAdjacentHTML('beforeend', previewHTML);
+            new bootstrap.Modal(document.getElementById('previewModal')).show();
+        }
+
+        function getFileMakerFormData(poNumber) {
+            return {
+                po_number: document.getElementById(`fm-po-number-${poNumber}`)?.value || '',
+                part_number: document.getElementById(`fm-part-number-${poNumber}`)?.value || '',
+                quantity: document.getElementById(`fm-quantity-${poNumber}`)?.value || '',
+                work_order: document.getElementById(`fm-work-order-${poNumber}`)?.value || '',
+                buyer_name: document.getElementById(`fm-buyer-name-${poNumber}`)?.value || '',
+                delivery_date: document.getElementById(`fm-delivery-date-${poNumber}`)?.value || '',
+                source_file: document.getElementById(`fm-source-file-${poNumber}`)?.value || ''
+            };
+        }
+
+        async function createFileMakerRecordFromForm(poNumber) {
+            try {
+                // Get edited form data
+                const formData = getFileMakerFormData(poNumber);
+                const forceResubmit = document.getElementById(`forceResubmit-${poNumber}`)?.checked || false;
+                
+                // Prepare the data payload with custom field mappings
+                const payload = {
+                    po_number: poNumber,
+                    force_resubmit: forceResubmit,
+                    custom_data: {
+                        purchase_order_number: formData.po_number,
+                        part_number: formData.part_number,
+                        quantity: formData.quantity,
+                        production_order: formData.work_order,
+                        mjo_number: formData.work_order,
+                        buyer_name: formData.buyer_name,
+                        planner_name: formData.buyer_name,
+                        dock_date: formData.delivery_date,
+                        delivery_date: formData.delivery_date,
+                        source_file: formData.source_file
+                    }
+                };
+                
+                // Show loading state
+                const button = event.target.closest('button');
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+                button.disabled = true;
+                
+                const response = await fetch(`/api/filemaker/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await response.json();
+                
+                // Restore button state
+                button.innerHTML = originalText;
+                button.disabled = false;
+                
+                if (response.ok) {
+                    if (result.status === 'success') {
+                        addNotification('FileMaker Record Created', `✅ PO ${poNumber} record created successfully with your edits!`, 'success');
+                        showToast('FileMaker Record Created', `✅ PO ${poNumber} record created successfully!`, 'success');
+                        
+                        // Close the modal
+                        bootstrap.Modal.getInstance(document.getElementById('poDetailsModal')).hide();
+                    } else if (result.status === 'warning') {
+                        addNotification('FileMaker Record Exists', `⚠️ ${result.message}`, 'warning');
+                        showToast('FileMaker Record Exists', `⚠️ ${result.message}`, 'warning');
+                        
+                        // Close the modal
+                        bootstrap.Modal.getInstance(document.getElementById('poDetailsModal')).hide();
+                    } else {
+                        addNotification('FileMaker Error', `❌ ${result.message || 'Unknown error occurred'}`, 'error');
+                        showToast('FileMaker Error', `❌ ${result.message || 'Unknown error occurred'}`, 'error');
+                    }
+                } else {
+                    addNotification('FileMaker Error', `❌ ${result.message || `Failed to create record for PO ${poNumber}`}`, 'error');
+                    showToast('FileMaker Error', `❌ ${result.message || `Failed to create record for PO ${poNumber}`}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error creating FileMaker record:', error);
+                
+                // Restore button state
+                const button = event.target.closest('button');
+                button.innerHTML = '<i class="fas fa-database"></i> Submit to FileMaker';
+                button.disabled = false;
+                
+                addNotification('FileMaker Error', `❌ Error creating record: ${error.message}`, 'error');
+                showToast('FileMaker Error', `❌ Error creating record: ${error.message}`, 'error');
+            }
+        }
+
+        function previewJSON(poNumber, fileName) {
+            fetch(`/api/po/${poNumber}/file/${fileName}`)
+                .then(response => response.json())
+                .then(data => {
+                    const jsonPreviewHTML = `
+                        <div class="modal fade" id="jsonPreviewModal" tabindex="-1">
+                            <div class="modal-dialog modal-xl">
+                                <div class="modal-content" style="background: var(--bg-tertiary);">
+                                    <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                                        <h5 class="modal-title" style="color: var(--text-primary);">JSON Preview: ${fileName}</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body" style="color: var(--text-primary);">
+                                        <pre style="background: var(--bg-primary) !important; color: var(--text-primary) !important; padding: 1rem; border-radius: 0.375rem; font-size: 0.8em; border: 1px solid var(--border-color); max-height: 500px; overflow-y: auto;">${JSON.stringify(data, null, 2)}</pre>
+                                    </div>
+                                    <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                        <button type="button" class="btn btn-primary" onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(data)}, null, 2)); showToast('Copied', 'JSON copied to clipboard', 'success')">
+                                            <i class="fas fa-copy"></i> Copy JSON
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Remove existing preview modal
+                    const existingPreview = document.getElementById('jsonPreviewModal');
+                    if (existingPreview) {
+                        existingPreview.remove();
+                    }
+                    
+                    // Add and show preview
+                    document.body.insertAdjacentHTML('beforeend', jsonPreviewHTML);
+                    new bootstrap.Modal(document.getElementById('jsonPreviewModal')).show();
+                })
+                .catch(error => {
+                    showToast('Error', `Failed to load JSON file: ${error.message}`, 'error');
+                });
+        }
+
+        // Notification System Functions
+        function toggleNotifications() {
+            const dropdown = document.getElementById('notificationDropdown');
+            const button = document.getElementById('notificationBell');
+            
+            if (notificationDropdownVisible) {
+                dropdown.style.display = 'none';
+                notificationDropdownVisible = false;
+            } else {
+                dropdown.style.display = 'block';
+                notificationDropdownVisible = true;
+                // Position dropdown relative to bell
+                const rect = button.getBoundingClientRect();
+                dropdown.style.position = 'fixed';
+                dropdown.style.top = (rect.bottom + 10) + 'px';
+                dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+                
+                // Mark notifications as read
+                markNotificationsAsRead();
+            }
+        }
+
+        function addNotification(title, message, type = 'info') {
+            const timestamp = new Date();
+            const notification = {
+                id: Date.now(),
+                title: title,
+                message: message,
+                type: type,
+                timestamp: timestamp,
+                read: false
+            };
+            
+            notifications.unshift(notification);
+            
+            // Keep only last 50 notifications
+            if (notifications.length > 50) {
+                notifications = notifications.slice(0, 50);
+            }
+            
+            updateNotificationUI();
+            showToast(title, message, type);
+            
+            // Store in localStorage
+            localStorage.setItem('po_notifications', JSON.stringify(notifications));
+        }
+
+        function updateNotificationUI() {
+            const badge = document.getElementById('notificationBadge');
+            const list = document.getElementById('notificationList');
+            
+            const unreadCount = notifications.filter(n => !n.read).length;
+            
+            if (unreadCount > 0) {
+                badge.textContent = unreadCount;
+                badge.style.display = 'block';
+                badge.classList.add('notification-badge-animate');
+                hasNewNotifications = true;
+            } else {
+                badge.style.display = 'none';
+                badge.classList.remove('notification-badge-animate');
+                hasNewNotifications = false;
+            }
+            
+            // Update notification list
+            if (notifications.length === 0) {
+                list.innerHTML = `
+                    <div class="notification-item text-center text-muted">
+                        <i class="fas fa-inbox fa-2x mb-2"></i>
+                        <div>No notifications</div>
+                    </div>
+                `;
+            } else {
+                list.innerHTML = notifications.map(notification => `
+                    <div class="notification-item ${!notification.read ? 'unread' : ''}" onclick="markNotificationAsRead('${notification.id}')">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <div class="fw-bold">${notification.title}</div>
+                                <div class="small">${notification.message}</div>
+                                <div class="notification-time">${formatNotificationTime(notification.timestamp)}</div>
+                            </div>
+                            <div class="ms-2">
+                                <i class="fas ${getNotificationIcon(notification.type)} text-${getNotificationColor(notification.type)}"></i>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function markNotificationsAsRead() {
+            notifications.forEach(n => n.read = true);
+            updateNotificationUI();
+            localStorage.setItem('po_notifications', JSON.stringify(notifications));
+        }
+
+        function markNotificationAsRead(id) {
+            const notification = notifications.find(n => n.id.toString() === id);
+            if (notification) {
+                notification.read = true;
+                updateNotificationUI();
+                localStorage.setItem('po_notifications', JSON.stringify(notifications));
+            }
+        }
+
+        function clearAllNotifications() {
+            notifications = [];
+            updateNotificationUI();
+            localStorage.removeItem('po_notifications');
+        }
+
+        function showToast(title, message, type = 'info') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toastId = 'toast_' + Date.now();
+            
+            const toastHtml = `
+                <div class="toast show" id="${toastId}" role="alert">
+                    <div class="toast-header">
+                        <i class="fas ${getNotificationIcon(type)} text-${getNotificationColor(type)} me-2"></i>
+                        <strong class="me-auto">${title}</strong>
+                        <small class="text-muted">now</small>
+                        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+                    </div>
+                    <div class="toast-body">
+                        ${message}
+                    </div>
+                </div>
+            `;
+            
+            toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                const toast = document.getElementById(toastId);
+                if (toast) {
+                    toast.remove();
+                }
+            }, 5000);
+        }
+
+        function getNotificationIcon(type) {
+            switch (type) {
+                case 'success': return 'fa-check-circle';
+                case 'warning': return 'fa-exclamation-triangle';
+                case 'error': return 'fa-times-circle';
+                default: return 'fa-info-circle';
+            }
+        }
+
+        function getNotificationColor(type) {
+            switch (type) {
+                case 'success': return 'success';
+                case 'warning': return 'warning';
+                case 'error': return 'danger';
+                default: return 'info';
+            }
+        }
+
+        function formatNotificationTime(timestamp) {
+            const now = new Date();
+            const diff = now - timestamp;
+            const minutes = Math.floor(diff / 60000);
+            const hours = Math.floor(diff / 3600000);
+            const days = Math.floor(diff / 86400000);
+            
+            if (minutes < 1) return 'Just now';
+            if (minutes < 60) return `${minutes}m ago`;
+            if (hours < 24) return `${hours}h ago`;
+            return `${days}d ago`;
+        }
+
+        function checkForNewProcessedFiles(completedData) {
+            if (!completedData || !completedData.files) return;
+            
+            const currentFiles = new Set(completedData.files.map(f => f.name));
+            
+            // Check for new files
+            const newFiles = [...currentFiles].filter(fileName => !knownProcessedFiles.has(fileName));
+            
+            if (newFiles.length > 0 && knownProcessedFiles.size > 0) {
+                // There are new files (and we're not on the first load)
+                newFiles.forEach(fileName => {
+                    const fileInfo = completedData.files.find(f => f.name === fileName);
+                    const poNumber = extractPONumber(fileName);
+                    
+                    addNotification(
+                        '📄 New PDF Processed!',
+                        `PO ${poNumber} has been successfully processed and is ready for review.`,
+                        'success'
+                    );
+                });
+                
+                // Play notification sound (optional)
+                playNotificationSound();
+            }
+            
+            // Update known files
+            knownProcessedFiles = currentFiles;
+        }
+
+        function extractPONumber(fileName) {
+            // Extract PO number from filename - adjust regex as needed
+            const match = fileName.match(/(\d{6,})/);
+            return match ? match[1] : 'Unknown';
+        }
+
+        function playNotificationSound() {
+            // Create a subtle notification sound
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+                
+                gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.2);
+            } catch (e) {
+                // Audio not supported or blocked
+                console.log('Notification sound not available');
+            }
+        }
+
+        function loadNotificationsFromStorage() {
+            try {
+                const stored = localStorage.getItem('po_notifications');
+                if (stored) {
+                    notifications = JSON.parse(stored);
+                    // Convert timestamp strings back to Date objects
+                    notifications.forEach(n => n.timestamp = new Date(n.timestamp));
+                    updateNotificationUI();
+                }
+            } catch (e) {
+                console.log('Could not load notifications from storage');
+            }
+        }
+
+        // Notification Settings Functions
+        async function openNotificationSettings() {
+            try {
+                const response = await fetch('/api/notifications/config');
+                const result = await response.json();
+                
+                // Check if the API returned a success response
+                if (result.status !== 'success') {
+                    throw new Error(result.message || 'Failed to load configuration');
+                }
+                
+                const config = result.config;
+                
+                // Populate form with current settings
+                document.getElementById('emailEnabled').checked = config.email?.enabled || false;
+                document.getElementById('emailServer').value = config.email?.smtp_server || 'smtp.gmail.com';
+                document.getElementById('emailPort').value = config.email?.smtp_port || 587;
+                document.getElementById('emailUsername').value = config.email?.username || '';
+                document.getElementById('emailPassword').value = config.email?.password || '';
+                document.getElementById('emailRecipients').value = config.email?.to_addresses?.join(', ') || '';
+                
+                document.getElementById('pushoverEnabled').checked = config.pushover?.enabled || false;
+                document.getElementById('pushoverUserKey').value = config.pushover?.user_key || '';
+                document.getElementById('pushoverApiToken').value = config.pushover?.api_token || '';
+                
+                document.getElementById('telegramEnabled').checked = config.telegram?.enabled || false;
+                document.getElementById('telegramBotToken').value = config.telegram?.bot_token || '';
+                document.getElementById('telegramChatId').value = config.telegram?.chat_id || '';
+                
+                document.getElementById('webhookEnabled').checked = config.webhook?.enabled || false;
+                document.getElementById('webhookUrls').value = config.webhook?.urls?.join('\n') || '';
+                
+                // Show modal
+                new bootstrap.Modal(document.getElementById('notificationSettingsModal')).show();
+            } catch (error) {
+                console.error('Error loading notification settings:', error);
+                addNotification('Error', 'Failed to load notification settings', 'error');
+            }
+        }
+
+        async function saveNotificationSettings() {
+            try {
+                const config = {
+                    email: {
+                        enabled: document.getElementById('emailEnabled').checked,
+                        smtp_server: document.getElementById('emailServer').value,
+                        smtp_port: parseInt(document.getElementById('emailPort').value) || 587,
+                        username: document.getElementById('emailUsername').value,
+                        password: document.getElementById('emailPassword').value,
+                        to_addresses: document.getElementById('emailRecipients').value.split(',').map(email => email.trim()).filter(email => email)
+                    },
+                    pushover: {
+                        enabled: document.getElementById('pushoverEnabled').checked,
+                        user_key: document.getElementById('pushoverUserKey').value,
+                        api_token: document.getElementById('pushoverApiToken').value
+                    },
+                    telegram: {
+                        enabled: document.getElementById('telegramEnabled').checked,
+                        bot_token: document.getElementById('telegramBotToken').value,
+                        chat_id: document.getElementById('telegramChatId').value
+                    },
+                    webhook: {
+                        enabled: document.getElementById('webhookEnabled').checked,
+                        urls: document.getElementById('webhookUrls').value.split('\n').map(url => url.trim()).filter(url => url)
+                    }
+                };
+
+                const response = await fetch('/api/notifications/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    addNotification('Settings Saved', 'Notification settings have been updated successfully!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('notificationSettingsModal')).hide();
+                } else {
+                    addNotification('Error', result.message || 'Failed to save settings', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving notification settings:', error);
+                addNotification('Error', 'Failed to save notification settings', 'error');
+            }
+        }
+
+        async function testNotifications() {
+            try {
+                const response = await fetch('/api/notifications/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        title: '📱 Test Notification from PO System',
+                        message: 'This is a test notification to verify your settings are working correctly! If you received this on your phone, everything is set up properly. 🎉'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    let message = 'Test notifications sent! Check your devices:\n\n';
+                    Object.entries(result.results).forEach(([service, success]) => {
+                        message += `${service}: ${success ? '✅ Sent' : '❌ Failed'}\n`;
+                    });
+                    
+                    addNotification('Test Sent', message, 'info');
+                } else {
+                    addNotification('Test Failed', result.message || 'Failed to send test notifications', 'error');
+                }
+            } catch (error) {
+                console.error('Error testing notifications:', error);
+                addNotification('Test Error', 'Failed to send test notifications', 'error');
+            }
+        }
+
+        // Close notification dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('notificationDropdown');
+            const bell = document.getElementById('notificationBell');
+            
+            if (notificationDropdownVisible && !dropdown.contains(event.target) && !bell.contains(event.target)) {
+                dropdown.style.display = 'none';
+                notificationDropdownVisible = false;
+            }
+        });
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            // Load notifications from localStorage
+            loadNotificationsFromStorage();
+            
+            // Initial data load
+            refreshData();
+            
+            // Auto-refresh every 30 seconds
+            refreshInterval = setInterval(refreshData, 30000);
+        });
+
+        // Manual refresh button
+        window.refreshData = refreshData;
+    </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "docker-dev": {
+      "command": "docker",
+      "args": ["exec", "-it", "po-dashboard", "bash"],
+      "description": "Direct access to dashboard container for debugging"
+    },
+    "python-dev": {
+      "command": "python3",
+      "args": ["-m", "flask", "--help"],
+      "description": "Flask development commands"
+    },
+    "file-watcher": {
+      "command": "inotifywait",
+      "args": ["-m", "-r", "-e", "modify,create,delete", "/volume1/Main/Main/ParkerPOsOCR/dashboard/"],
+      "description": "Watch for file changes in dashboard"
+    }
+  }
+}

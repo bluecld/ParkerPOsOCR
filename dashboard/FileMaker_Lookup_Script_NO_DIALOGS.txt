@@ -1,0 +1,66 @@
+# FileMaker Script: "Lookup" (NO DIALOG VERSION)
+# Copy this exactly into your FileMaker Script Workspace
+# This version writes to a log file instead of showing dialogs
+
+# Get the parameters passed from the API (PO Number|Part Number)
+Set Variable [ $params; Value: Get(ScriptParameter) ]
+Set Variable [ $poNumber; Value: GetValue ( Substitute ( $params ; "|" ; ¶ ) ; 1 ) ]
+Set Variable [ $partNumber; Value: GetValue ( Substitute ( $params ; "|" ; ¶ ) ; 2 ) ]
+
+# Create log entry - start
+Set Variable [ $logEntry; Value: Get(CurrentTimeStamp) & " - LOOKUP SCRIPT START - PO: " & $poNumber & " Part: " & $partNumber ]
+
+# Go to the correct layout
+Go to Layout [ "PreInventory" (PreInventory); Animation: None ]
+
+# Find the record by PO number
+Enter Find Mode [ Pause: Off ]
+Set Field [ PreInventory::Whittaker Shipper #; $poNumber ]
+Perform Find [ ]
+
+# Check if record was found
+If [ Get ( FoundCount ) = 0 ]
+    Set Variable [ $logEntry; Value: $logEntry & "¶" & Get(CurrentTimeStamp) & " - ERROR: Record not found for PO: " & $poNumber ]
+    Exit Script [ Text Result: "Record not found" ]
+End If
+
+# Log that we found the record
+Set Variable [ $logEntry; Value: $logEntry & "¶" & Get(CurrentTimeStamp) & " - Record found, clearing Part Number field" ]
+
+# CRITICAL: First clear the Part Number field to reset all lookups
+Set Field [ PreInventory::PART NUMBER; "" ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Wait for FileMaker to process the clear
+Pause/Resume Script [ Duration (seconds): 1 ]
+
+# Log setting part number
+Set Variable [ $logEntry; Value: $logEntry & "¶" & Get(CurrentTimeStamp) & " - Setting Part Number to: " & $partNumber ]
+
+# Now set the Part Number - this should trigger all lookups
+Set Field [ PreInventory::PART NUMBER; $partNumber ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Wait for automatic lookups to process
+Pause/Resume Script [ Duration (seconds): 2 ]
+
+# Log before manual relookups
+Set Variable [ $logEntry; Value: $logEntry & "¶" & Get(CurrentTimeStamp) & " - Forcing manual relookups" ]
+
+# Force manual relookups if automatic didn't work
+Relookup Field Contents [ With dialog: Off; PreInventory::Description ]
+Relookup Field Contents [ With dialog: Off; PreInventory::Revision ]
+Relookup Field Contents [ With dialog: Off; PreInventory::Op Sheet Issue ]
+
+# Final commit
+Commit Records/Requests [ With dialog: Off ]
+
+# Log final results
+Set Variable [ $logEntry; Value: $logEntry & "¶" & Get(CurrentTimeStamp) & " - FINAL RESULTS:" ]
+Set Variable [ $logEntry; Value: $logEntry & "¶  Part Number: " & PreInventory::PART NUMBER ]
+Set Variable [ $logEntry; Value: $logEntry & "¶  Description: " & PreInventory::Description ]
+Set Variable [ $logEntry; Value: $logEntry & "¶  Revision: " & PreInventory::Revision ]
+Set Variable [ $logEntry; Value: $logEntry & "¶  Op Sheet Issue: " & PreInventory::Op Sheet Issue ]
+
+# Exit with results in the script result (this gets returned to the API)
+Exit Script [ Text Result: $logEntry ]

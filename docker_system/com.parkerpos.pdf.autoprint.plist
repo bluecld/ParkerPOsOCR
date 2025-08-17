@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.parkerpos.pdf.autoprint</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/Shared/ParkerPOsOCR/pdf_auto_print_monitor.py</string>
+        <string>--auto</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/Shared/ParkerPOsOCR</string>
+    
+    <key>StandardOutPath</key>
+    <string>/Users/Shared/ParkerPOsOCR/pdf_monitor.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/Shared/ParkerPOsOCR/pdf_monitor_error.log</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>LaunchOnlyOnce</key>
+    <false/>
+    
+    <key>UserName</key>
+    <string>anthony</string>
+</dict>
+</plist>

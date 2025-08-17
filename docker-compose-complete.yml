@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Main PO Processing System
+  po-processor:
+    build: 
+      context: ./docker_system
+      dockerfile: Dockerfile
+    container_name: po-processor
+    restart: unless-stopped
+    volumes:
+      - ./Scans:/app/input
+      - ./POs:/app/processed
+      - ./Archive:/app/archive
+      - ./Errors:/app/errors
+      - ./docker_system/logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=America/Los_Angeles
+      - FILEMAKER_ENABLED=true
+      - FILEMAKER_SERVER=https://192.168.0.105:443
+      - FILEMAKER_DATABASE=PreInventory
+      - FILEMAKER_LAYOUT=PreInventory
+      - FILEMAKER_USERNAME=JSON
+      - FILEMAKER_PASSWORD=Windu63Purple!
+    networks:
+      - po-network
+
+  # Secure Dashboard
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile.dashboard
+    container_name: po-dashboard
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./POs:/app/POs
+      - ./Scans:/app/Scans
+      - ./Errors:/app/Errors
+      - ./Archive:/app/Archive
+      - ./dashboard/ssl:/app/ssl
+      - ./dashboard/logs:/app/logs
+      - ./dashboard/uploads:/app/uploads
+      - ./dashboard/templates:/app/templates
+      - ./dashboard/static:/app/static
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - PYTHONUNBUFFERED=1
+      - TEMPLATES_AUTO_RELOAD=1
+      - SECRET_KEY=parker-po-dashboard-secure-key-2025
+      - USE_HTTPS=true
+      - SSL_CERT_PATH=/app/ssl/dashboard.crt
+      - SSL_KEY_PATH=/app/ssl/dashboard.key
+    networks:
+      - po-network
+    depends_on:
+      - po-processor
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:8443/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  po-network:
+    driver: bridge

@@ -1,0 +1,7 @@
+#!/usr/bin/expect -f
+
+set timeout 10
+spawn ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no admin@192.168.0.108 "mkdir -p /Users/Shared/ParkerPOsOCR/exports && ls -la /Users/Shared/ParkerPOsOCR/ && chmod 755 /Users/Shared/ParkerPOsOCR/exports"
+expect "Password:"
+send "Rynrin12\r"
+expect eof

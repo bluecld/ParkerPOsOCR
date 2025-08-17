@@ -1,0 +1,12 @@
+# Core dependencies for PO Processing
+PyMuPDF==1.23.0
+pytesseract==0.3.10
+Pillow==10.0.0
+watchdog==3.0.0
+
+# Add OpenCV for PDF OCR
+opencv-python
+
+# FileMaker integration (for Phase 1b)
+requests==2.31.0
+python-dotenv==1.0.0

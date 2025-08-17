@@ -1,0 +1,26 @@
+{
+  "email": {
+    "enabled": true,
+    "smtp_server": "tekent.ipower.com",
+    "smtp_port": 587,
+    "username": "anthony@tekenterprisesinc.com",
+    "password": "!Rynrin12",
+    "to_addresses": [
+      "anthony@tekenterprisesinc.com"
+    ]
+  },
+  "pushover": {
+    "enabled": true,
+    "user_key": "ur23coitqd3s5ri5xebvi4bh4ome7h",
+    "api_token": "ae7yok1fyg9bqk6s1fuctwvbksjftf"
+  },
+  "telegram": {
+    "enabled": false,
+    "bot_token": "",
+    "chat_id": ""
+  },
+  "webhook": {
+    "enabled": false,
+    "urls": []
+  }
+}

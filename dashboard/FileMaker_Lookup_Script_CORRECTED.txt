@@ -1,0 +1,51 @@
+# CORRECTED FileMaker Script: "Lookup"
+# Copy this exactly into your FileMaker Script Workspace
+
+# Get the parameters passed from the API (PO Number|Part Number)
+Set Variable [ $params; Value: Get(ScriptParameter) ]
+Set Variable [ $poNumber; Value: GetValue ( Substitute ( $params ; "|" ; ¶ ) ; 1 ) ]
+Set Variable [ $partNumber; Value: GetValue ( Substitute ( $params ; "|" ; ¶ ) ; 2 ) ]
+
+# Debug: Show what we received (optional - remove after testing)
+Show Custom Dialog [ "Debug Info"; "PO: " & $poNumber & "¶Part: " & $partNumber ]
+
+# Go to the correct layout
+Go to Layout [ "PreInventory" (PreInventory); Animation: None ]
+
+# Find the record by PO number
+Enter Find Mode [ Pause: Off ]
+Set Field [ PreInventory::Whittaker Shipper #; $poNumber ]
+Perform Find [ ]
+
+# Check if record was found
+If [ Get ( FoundCount ) = 0 ]
+    Show Custom Dialog [ "Error"; "Record not found for PO: " & $poNumber ]
+    Exit Script [ Text Result: "Record not found" ]
+End If
+
+# CRITICAL: First clear the Part Number field to reset all lookups
+Set Field [ PreInventory::PART NUMBER; "" ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Wait for FileMaker to process the clear
+Pause/Resume Script [ Duration (seconds): 1 ]
+
+# Now set the Part Number - this should trigger all lookups
+Set Field [ PreInventory::PART NUMBER; $partNumber ]
+Commit Records/Requests [ With dialog: Off ]
+
+# Wait for automatic lookups to process
+Pause/Resume Script [ Duration (seconds): 2 ]
+
+# Force manual relookups if automatic didn't work
+Relookup Field Contents [ With dialog: Off; PreInventory::Description ]
+Relookup Field Contents [ With dialog: Off; PreInventory::Revision ]
+Relookup Field Contents [ With dialog: Off; PreInventory::Op Sheet Issue ]
+
+# Final commit
+Commit Records/Requests [ With dialog: Off ]
+
+# Show results for debugging
+Show Custom Dialog [ "Lookup Results"; "Part: " & PreInventory::PART NUMBER & "¶Description: " & PreInventory::Description & "¶Revision: " & PreInventory::Revision & "¶Op Sheet: " & PreInventory::Op Sheet Issue ]
+
+Exit Script [ Text Result: "Lookups completed: Part=" & $partNumber & " PO=" & $poNumber ]

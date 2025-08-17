@@ -1,0 +1,28 @@
+[Unit]
+Description=PO Processing Secure Dashboard
+After=network.target docker.service
+Wants=network.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/volume1/Main/Main/ParkerPOsOCR/dashboard
+ExecStart=/usr/bin/python3 app_secure.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=po-dashboard-secure
+
+# Environment variables
+Environment=FLASK_ENV=production
+Environment=PYTHONPATH=/volume1/Main/Main/ParkerPOsOCR/dashboard
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
