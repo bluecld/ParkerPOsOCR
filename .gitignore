@@ -80,11 +80,12 @@ dashboard/filemaker_config.json
 # FileMaker Data & Sensitive Info
 cookies.txt
 
-# Processed Data (Optional - comment out if you want to track these)
-POs/*/
+# Processed Data - Keep sample POs but exclude large archives
 Archive/
 Scans/
 Errors/
+# Keep first few PO samples for reference but exclude large data sets
+POs/455124*/
 
 # Development Scripts Output
 *.tmp
