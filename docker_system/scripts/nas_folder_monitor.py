@@ -40,49 +40,56 @@ class POProcessorHandler(FileSystemEventHandler):
             folder.mkdir(parents=True, exist_ok=True)
     
     def send_notification(self, title, message, po_number=None, notification_type="info"):
-        """Send notification to dashboard API"""
+        """Send notification to dashboard API and push app"""
         try:
-            # Try to send notification via dashboard API
             payload = {
                 "title": title,
                 "message": message,
                 "po_number": po_number,
                 "type": notification_type
             }
-            
-            # Dashboard URLs - try internal container networking first, then external
             dashboard_urls = [
-                "https://dashboard:8443/api/notifications/send",  # Container network
-                "https://192.168.0.62:8443/api/notifications/send",  # External access
-                "https://127.0.0.1:8443/api/notifications/send"
+                "http://192.168.0.62:8443/api/notifications/send",
+                "http://127.0.0.1:8443/api/notifications/send"
             ]
-            
-            # Authentication for the dashboard API
             import base64
             auth_string = base64.b64encode(b"anthony:password").decode('ascii')
             headers = {
                 'Authorization': f'Basic {auth_string}',
                 'Content-Type': 'application/json'
             }
-            
+            sent = False
             for url in dashboard_urls:
                 try:
-                    # Use verify=False for HTTPS to handle self-signed certificates
-                    verify_ssl = False if url.startswith('https://') else True
-                    response = requests.post(url, json=payload, headers=headers, timeout=10, verify=verify_ssl)
+                    response = requests.post(url, json=payload, headers=headers, timeout=10)
                     if response.status_code == 200:
                         logging.info(f"Notification sent: {title}")
-                        return True
+                        sent = True
                     else:
                         logging.warning(f"Notification failed with status {response.status_code}: {response.text}")
                 except Exception as url_error:
                     logging.warning(f"Failed to reach {url}: {url_error}")
                     continue
-            
-            # If dashboard API fails, log it but don't stop processing
-            logging.error(f"All notification URLs failed for: {title}")
-            return False
-                    
+            # Push app notification (e.g., Pushover)
+            try:
+                push_url = "https://api.pushover.net/1/messages.json"
+                push_payload = {
+                    "token": "YOUR_PUSHOVER_APP_TOKEN",
+                    "user": "YOUR_PUSHOVER_USER_KEY",
+                    "message": message,
+                    "title": title
+                }
+                push_response = requests.post(push_url, data=push_payload, timeout=10)
+                if push_response.status_code == 200:
+                    logging.info(f"Push notification sent: {title}")
+                    sent = True
+                else:
+                    logging.warning(f"Push notification failed: {push_response.text}")
+            except Exception as push_error:
+                logging.error(f"Push notification error: {push_error}")
+            if not sent:
+                logging.error(f"All notification methods failed for: {title}")
+            return sent
         except Exception as e:
             logging.error(f"Failed to send notification: {e}")
             return False

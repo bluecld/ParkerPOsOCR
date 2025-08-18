@@ -225,79 +225,46 @@ def extract_quantity_and_dock_date(text):
     
     lines = text.split('\n')
     
-    # Strategy 1: Table-aware extraction - distinguish quantity from price
-    # Table structure: Item | Part number | Revision | Quantity | Net price | Per | UM | Dock date | Net amount
+    # Strategy 1: Smart context-aware extraction
+    # Look for lines with item/part/revision/quantity/unit/dock date context
     for i, line in enumerate(lines):
-        # Look for lines that contain both decimal numbers AND unit indicators
-        # Quantity typically appears with units like "EA", "LBS", "PCS" nearby
-        if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE):
-            # This line likely contains quantity information
-            
-            # Parse the line by position to distinguish quantity from price
-            segments = re.split(r'\s{2,}', line.strip())  # Split on multiple spaces
-            
-            # Advanced fractional detection: 
-            # Look for the typical quantity position (before price, before units)
-            # Usually quantity appears 1-3 positions before the unit indicator
-            unit_position = None
+        # Look for lines with units and at least one number
+        if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE) and re.search(r'\d', line):
+            # Try to find header context in previous lines
+            header_context = None
+            for h in range(max(0, i-3), i):
+                if re.search(r'Item.*Quantity.*UM.*Dock', lines[h], re.IGNORECASE):
+                    header_context = lines[h]
+                    break
+            segments = re.split(r'\s+', line.strip())
+            # Find the unit position
+            unit_idx = None
             for idx, seg in enumerate(segments):
                 if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', seg, re.IGNORECASE):
-                    unit_position = idx
+                    unit_idx = idx
                     break
-            
-            if unit_position is not None:
-                # Check positions before the unit indicator for fractional quantities
-                # Typically: ... Quantity Price Unit ...
-                qty_start_pos = max(0, unit_position - 3)
-                qty_end_pos = unit_position
-                
-                # Check if any likely quantity positions contain fractional values
-                has_fractional_qty = False
-                for pos in range(qty_start_pos, qty_end_pos):
-                    if pos < len(segments):
-                        segment = segments[pos]
-                        # Look for fractional decimals that could be quantities
-                        fractional_match = re.search(r'\d+\.(?!00\b)\d{2}', segment)
-                        if fractional_match:
-                            # Check if this looks like a quantity (small number, reasonable range)
-                            value = float(fractional_match.group())
-                            if 0.1 <= value <= 1000:  # Reasonable quantity range
-                                has_fractional_qty = True
-                                break
-                
-                if has_fractional_qty:
-                    # Skip this line as it appears to have fractional quantities
-                    continue
-            
-            # Look for potential quantity positions (early columns)
-            for j, segment in enumerate(segments):
-                # Only consider early-to-middle columns as potential quantity positions
-                if j < len(segments) - 2:  # Not in last two columns
-                    
-                    # Look for .00 values in this segment (potential quantities)
-                    segment_matches = re.findall(r'(\d+)\.00\b', segment)
-                    
-                    for qty_str in segment_matches:
-                        potential_qty = int(qty_str)
-                        
-                        # Quantity validation:
-                        # 1. Must end in .00 (guaranteed by regex)
-                        # 2. Reasonable quantity range (1-1000)
-                        # 3. Should not be excessively large (prices are usually higher)
-                        if (1 <= potential_qty <= 1000 and 
-                            potential_qty < 500):  # Conservative upper limit for quantities
-                            
-                            quantity = potential_qty
-                            
-                            # Look for dock date in the same line
-                            date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', line)
-                            if date_match:
-                                dock_date = date_match.group(1)
+            # Look for a number (integer or .00) before the unit
+            if unit_idx is not None:
+                for pos in range(max(0, unit_idx-3), unit_idx):
+                    seg = segments[pos]
+                    # Accept .00 or integer
+                    match = re.match(r'^(\d+)\.00$', seg)
+                    if match:
+                        val = int(match.group(1))
+                        if 1 <= val <= 1000:
+                            quantity = val
                             break
-                
-                if quantity:
-                    break
-            
+                    else:
+                        match = re.match(r'^(\d+)$', seg)
+                        if match:
+                            val = int(match.group(1))
+                            if 1 <= val <= 1000:
+                                quantity = val
+                                break
+            # Look for dock date in the same line
+            date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', line)
+            if date_match:
+                dock_date = date_match.group(1)
             if quantity:
                 break
     
@@ -554,19 +521,19 @@ def extract_buyer_name(text):
     for buyer in known_buyers:
         if buyer in text:
             return buyer
-    
+
     # Generic approach: Look for buyer name pattern - appears after "Buyer/phone" field
     for i, line in enumerate(lines):
         line_lower = line.lower()
         if 'buyer/phone' in line_lower or 'buyer:' in line_lower or 'buyer' in line_lower:
-            # The name should be on the next line or next few lines
             for j in range(i + 1, min(i + 4, len(lines))):
                 next_line = lines[j].strip()
                 if next_line and len(next_line) > 2:
-                    # Check if this looks like a name (letters, spaces, possibly punctuation)
-                    if re.match(r'^[A-Za-z\s\.\-]+$', next_line) and len(next_line.split()) >= 2:
-                        return next_line
-    
+                    # Avoid picking up fax/email/phone/number
+                    if not any(x in next_line.lower() for x in ['fax', 'email', 'phone', 'number']):
+                        if re.match(r'^[A-Za-z\s\.\-]+$', next_line) and len(next_line.split()) >= 2:
+                            return next_line
+
     # Alternative: Look for email patterns and extract name before @
     email_pattern = r'([A-Za-z\s]+)\s*[<(]?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})[>)]?'
     email_matches = re.findall(email_pattern, text)
@@ -574,30 +541,25 @@ def extract_buyer_name(text):
         name = name.strip()
         if len(name) > 5 and len(name.split()) >= 2:
             return name
-    
+
     # Last resort: Look for patterns like "Name: [Person Name]"
     name_pattern = r'(?:Name|Contact|Buyer):\s*([A-Za-z\s\.\-]{5,30})'
     name_matches = re.findall(name_pattern, text, re.IGNORECASE)
     if name_matches:
         return name_matches[0].strip()
-    
+
     # Look for any proper name pattern that appears multiple times (likely buyer name)
     name_pattern = r'([A-Z][a-z]+\s+[A-Z][a-z]+)'
     matches = re.findall(name_pattern, text)
-    
     if matches:
-        # Count occurrences and filter out company names/addresses
         name_counts = {}
         for match in matches:
             match_lower = match.lower()
-            # Skip obvious non-person names
-            if not any(word in match_lower for word in ['street', 'avenue', 'road', 'drive', 'california', 'hollywood', 'north', 'meggitt', 'enterprises']):
+            if not any(word in match_lower for word in ['street', 'avenue', 'road', 'drive', 'california', 'hollywood', 'north', 'meggitt', 'enterprises', 'currency', 'buyer']):
                 name_counts[match] = name_counts.get(match, 0) + 1
-        
-        # Return the most frequent name (likely the buyer)
         if name_counts:
             return max(name_counts, key=name_counts.get)
-    
+
     return None
 
 def extract_dpas_ratings(text):

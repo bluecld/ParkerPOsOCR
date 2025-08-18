@@ -120,9 +120,31 @@ def process_pdf_file(input_pdf_path):
                             # Update JSON with FileMaker status
                             po_data['filemaker_status'] = 'success'
                             po_data['filemaker_timestamp'] = datetime.now().isoformat()
+                            # Send success notification
+                            try:
+                                from dashboard.notifications import notification_manager
+                                notification_manager.send_notification(
+                                    title=f"✅ FileMaker record created for PO {po_data.get('purchase_order_number')}",
+                                    message=f"PO {po_data.get('purchase_order_number')} was successfully created in FileMaker.",
+                                    po_number=po_data.get('purchase_order_number'),
+                                    notification_type="success"
+                                )
+                            except Exception as notify_err:
+                                print(f"Notification error: {notify_err}")
                         else:
                             print(f"❌ Failed to add PO {po_data.get('purchase_order_number')} to FileMaker")
                             po_data['filemaker_status'] = 'failed'
+                            # Send error notification
+                            try:
+                                from dashboard.notifications import notification_manager
+                                notification_manager.send_notification(
+                                    title=f"❌ FileMaker Error for PO {po_data.get('purchase_order_number')}",
+                                    message=f"Failed to create FileMaker record for PO {po_data.get('purchase_order_number')}",
+                                    po_number=po_data.get('purchase_order_number'),
+                                    notification_type="error"
+                                )
+                            except Exception as notify_err:
+                                print(f"Notification error: {notify_err}")
                     else:
                         print(f"⚠️ PO {po_data.get('purchase_order_number')} already exists in FileMaker")
                         po_data['filemaker_status'] = 'duplicate'

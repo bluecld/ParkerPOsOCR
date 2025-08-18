@@ -4,6 +4,7 @@ FROM python:3.11-slim
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     docker.io \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -23,5 +24,6 @@ EXPOSE 5000
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 
-# Run the application
-CMD ["python", "app.py"]
+# Run the secure application
+EXPOSE 8443
+CMD ["python", "app_secure.py"]
