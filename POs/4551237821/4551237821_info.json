@@ -1,0 +1,17 @@
+{
+  "purchase_order_number": "4551237821",
+  "page_count": 2,
+  "source_file": "Incoming_07292025_265684_searchable.pdf",
+  "production_order": "125146784",
+  "revision": "A",
+  "part_number": "159581*op20",
+  "quantity": 250,
+  "dock_date": null,
+  "payment_terms": "30 Days from Date of Invoice",
+  "payment_terms_non_standard_flag": false,
+  "vendor_name": "TEK ENTERPRISES, INC.",
+  "vendor_non_tek_flag": false,
+  "buyer_name": "Nataly Hernandez",
+  "dpas_ratings": null,
+  "quality_clauses": null
+}

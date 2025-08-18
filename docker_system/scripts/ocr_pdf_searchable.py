@@ -12,126 +12,91 @@ Features:
 - Preserves original visual quality
 
 Requirements:
-- PyMuPDF (fitz)
-- pytesseract
-- OpenCV (cv2)
-- PIL/Pillow
-- numpy
-- Tesseract OCR installed
-"""
-
-
-import fitz
-import pytesseract
-from PIL import Image
-import io
-import cv2
-import numpy as np
-import sys
-import os
-# Import robust PO extraction logic
-sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
-from extract_po_details import extract_quantity_and_dock_date, extract_buyer_name
-
-# Configure Tesseract path (update if needed)
-# For Linux container, use default system path
-if os.name == 'nt':  # Windows
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-else:  # Linux/Unix
-    pytesseract.pytesseract.tesseract_cmd = 'tesseract'
-
-def preprocess_image(img):
-    """
-    Apply advanced image preprocessing for better OCR accuracy
-    
-    Args:
-        img: PIL Image object
-        
-    Returns:
-        PIL Image object with preprocessing applied
-    """
-    img_array = np.array(img)
-    
-    # Reduce noise with Gaussian blur
-    img_array = cv2.GaussianBlur(img_array, (1, 1), 0)
-    
-    # Sharpen image
-    sharpen_kernel = np.array([[-1, -1, -1],
-                              [-1,  9, -1],
-                              [-1, -1, -1]])
-    img_array = cv2.filter2D(img_array, -1, sharpen_kernel)
-    
-    # Enhance contrast with CLAHE
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    img_array = clahe.apply(img_array)
-    
-    # Clean up with morphological operations
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
-    img_array = cv2.morphologyEx(img_array, cv2.MORPH_CLOSE, kernel)
-    
-    return Image.fromarray(img_array)
-
-def detect_and_correct_rotation(img):
+    doc = fitz.open(pdf_path)
+    all_text = ""
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        # Try direct text extraction first
+        page_text = page.get_text()
+        # If no text found or minimal text, use multi-pass OCR
+        if len(page_text.strip()) < 50:
+            matrices = [fitz.Matrix(4, 4), fitz.Matrix(3, 3), fitz.Matrix(2, 2)]
+            best_text = ""
+            best_length = 0
+            for matrix in matrices:
+                try:
+                    pix = page.get_pixmap(matrix=matrix)
+                    img_data = pix.tobytes("png")
+                    img = Image.open(io.BytesIO(img_data)).convert('L')
+                    configs = [
+                        r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-*().,: ',
+                        r'--oem 3 --psm 4',
+                        r'--oem 3 --psm 3',
+                        r'--oem 1 --psm 6',
+                        r'--oem 2 --psm 6'
+                    ]
+                    for config in configs:
+                        try:
+                            ocr_text = pytesseract.image_to_string(img, config=config)
+                            # Normalize whitespace and line breaks
+                            ocr_text = '\n'.join([line.strip() for line in ocr_text.splitlines() if line.strip()])
+                            if len(ocr_text) > best_length:
+                                best_text = ocr_text
+                                best_length = len(ocr_text)
+                        except Exception:
+                            continue
+                    if best_length > 200:
+                        break
+                except Exception as e:
+                    print(f"OCR matrix {matrix} failed: {e}")
+                    continue
+            page_text = best_text if best_text else page_text
+        # Post-process: normalize whitespace, remove duplicate lines
+        page_text = '\n'.join(dict.fromkeys([line.strip() for line in page_text.splitlines() if line.strip()]))
+        all_text += f"PAGE {page_num + 1}:\n{page_text}\n\n"
+    doc.close()
+    return all_text
+def detect_and_correct_orientation(img):
     """
     Detect page orientation and rotate image for optimal OCR
-    
     Args:
         img: PIL Image object
-        
     Returns:
         tuple: (corrected_image, rotation_angle)
     """
     try:
+        import pytesseract
         osd = pytesseract.image_to_osd(img)
         angle = int([line for line in osd.split('\n') if 'Rotate:' in line][0].split(':')[1].strip())
-        
         if angle != 0:
-            print(f"Detected rotation: {angle} degrees")
-            img = img.rotate(-angle, expand=True)
-        
+            img = img.rotate(angle, expand=True)
         return img, angle
-    except:
+    except Exception:
         return img, 0
 
 def pdf_to_searchable(input_pdf, output_pdf):
     """
     Convert a PDF to a searchable PDF by adding invisible OCR text overlay
-    
     Args:
         input_pdf (str): Path to input PDF file
         output_pdf (str): Path to output searchable PDF file
     """
+    import fitz
+    import os
     pdf_document = fitz.open(input_pdf)
-    
-    # Check if PDF has any pages
     if len(pdf_document) == 0:
-        # Get file info for better diagnostics
         file_size = os.path.getsize(input_pdf)
         metadata = pdf_document.metadata if pdf_document.metadata else {}
         creator = metadata.get('creator', 'Unknown')
-        
         pdf_document.close()
-        
-        # Provide detailed error message based on file characteristics
-        if file_size > 5000000:  # > 5MB but 0 pages - likely interrupted multi-page scan
-            raise ValueError(f"PDF file '{input_pdf}' contains no pages despite being {file_size:,} bytes. "
-                           f"Scanner: {creator}. This indicates an interrupted multi-page scan - the pipeline "
-                           f"processed the file before scanning was complete. Solution: Wait longer between "
-                           f"pages or scan single pages separately.")
-        elif file_size > 1000000:  # 1-5MB but 0 pages
-            raise ValueError(f"PDF file '{input_pdf}' contains no pages despite being {file_size:,} bytes. "
-                           f"Scanner: {creator}. This indicates a scanner hardware issue - the PDF structure is "
-                           f"malformed. Try: 1) Power cycle scanner, 2) Check scanner settings, 3) Test with simple document.")
+        if file_size > 5000000:
+            raise ValueError(f"PDF file '{input_pdf}' contains no pages despite being {file_size:,} bytes. Scanner: {creator}. This indicates an interrupted multi-page scan - the pipeline processed the file before scanning was complete. Solution: Wait longer between pages or scan single pages separately.")
+        elif file_size > 1000000:
+            raise ValueError(f"PDF file '{input_pdf}' contains no pages despite being {file_size:,} bytes. Scanner: {creator}. This indicates a scanner hardware issue - the PDF structure is malformed. Try: 1) Power cycle scanner, 2) Check scanner settings, 3) Test with simple document.")
         else:
-            raise ValueError(f"PDF file '{input_pdf}' contains no pages. This usually indicates a corrupted "
-                           f"or malformed PDF file. Please re-scan the document.")
-    
-
+            raise ValueError(f"PDF file '{input_pdf}' contains no pages. This usually indicates a corrupted or malformed PDF file. Please re-scan the document.")
     output_pdf_doc = fitz.open()
-
-    # Switch: use new full-text extraction and cleaning
     USE_FULL_TEXT_OCR = os.environ.get('USE_FULL_TEXT_OCR', '0') == '1'
-
     for page_num in range(len(pdf_document)):
         print(f"Processing page {page_num + 1}...")
         page = pdf_document[page_num]
