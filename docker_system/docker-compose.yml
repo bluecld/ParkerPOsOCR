@@ -18,6 +18,7 @@ services:
     network_mode: host
     volumes:
       - /volume1/Main/Main/ParkerPOsOCR/dashboard/logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - TZ=America/Los_Angeles
       - PYTHONUNBUFFERED=1

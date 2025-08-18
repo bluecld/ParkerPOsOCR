@@ -41,6 +41,11 @@ def process_pdf_file(input_pdf_path):
         print(f"OCR processing failed: {e}")
         print("STDOUT:", e.stdout)
         print("STDERR:", e.stderr)
+        # Write error details to error folder
+        error_folder = os.getenv('ERROR_FOLDER', '/app/errors')
+        error_file = os.path.join(error_folder, f"{base_name}_ocr_error.txt")
+        with open(error_file, 'w') as ef:
+            ef.write(f"OCR Error\nSTDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}\n")
         return False
     
     # Step 2: Extract PO information and split PDF
@@ -70,6 +75,10 @@ def process_pdf_file(input_pdf_path):
         print(f"Basic extraction failed: {e}")
         print("STDOUT:", e.stdout)
         print("STDERR:", e.stderr)
+        error_folder = os.getenv('ERROR_FOLDER', '/app/errors')
+        error_file = os.path.join(error_folder, f"{base_name}_basic_extract_error.txt")
+        with open(error_file, 'w') as ef:
+            ef.write(f"Basic Extraction Error\nSTDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}\n")
         return False
     finally:
         os.unlink(temp_script)
@@ -87,6 +96,10 @@ def process_pdf_file(input_pdf_path):
         print(f"Detailed extraction failed: {e}")
         print("STDOUT:", e.stdout)
         print("STDERR:", e.stderr)
+        error_folder = os.getenv('ERROR_FOLDER', '/app/errors')
+        error_file = os.path.join(error_folder, f"{base_name}_detail_extract_error.txt")
+        with open(error_file, 'w') as ef:
+            ef.write(f"Detail Extraction Error\nSTDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}\n")
         return False
     
     # Step 4: FileMaker Integration
