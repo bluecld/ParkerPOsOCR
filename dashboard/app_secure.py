@@ -15,6 +15,7 @@ from pathlib import Path
 import bcrypt
 from dotenv import load_dotenv
 import logging
+from notifications import notification_manager
 from functools import wraps
 import ipaddress
 
@@ -569,6 +570,12 @@ def api_send_notification():
         # Log to security logger
         security_logger.info(f"Notification received: {title} - {message} (PO: {po_number}, Type: {notification_type})")
         
+        # Dispatch via notification manager
+        try:
+            notification_manager.send_notification(title, message, po_number, notification_type)
+        except Exception as notify_err:
+            security_logger.error(f"Notification dispatch error: {notify_err}")
+
         # Store notification (you can extend this to store in database if needed)
         notification_data = {
             "title": title,

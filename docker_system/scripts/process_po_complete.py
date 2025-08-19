@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 from datetime import datetime
 from filemaker_integration import FileMakerIntegration
+import base64
+import requests
 
 def process_pdf_file(input_pdf_path):
     """Complete processing pipeline for a PDF file"""
@@ -33,10 +35,14 @@ def process_pdf_file(input_pdf_path):
     
     try:
         result = subprocess.run([
-            sys.executable, "ocr_pdf_searchable.py", 
+            sys.executable, "ocr_pdf_searchable.py",
             input_pdf_path, searchable_pdf
         ], capture_output=True, text=True, check=True)
         print("OCR processing completed successfully")
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print("[OCR STDERR]", result.stderr)
     except subprocess.CalledProcessError as e:
         print(f"OCR processing failed: {e}")
         print("STDOUT:", e.stdout)
@@ -49,27 +55,21 @@ def process_pdf_file(input_pdf_path):
         return False
     
     # Step 2: Extract PO information and split PDF
-    print("\\n=== Step 2: Information Extraction & PDF Splitting ===")
-    
-    # Modify the extract_po_info.py to use the correct filename temporarily
-    import tempfile
-    with open("extract_po_info.py", "r") as f:
-        content = f.read()
-    
-    # Replace the default filename with our searchable PDF
-    modified_content = content.replace(
-        'input_pdf = os.environ.get("SEARCHABLE_PDF", "final_searchable_output.pdf")',
-        f'input_pdf = "{searchable_pdf}"'
-    )
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as temp_file:
-        temp_file.write(modified_content)
-        temp_script = temp_file.name
-    
+    print("\n=== Step 2: Information Extraction & PDF Splitting ===")
+    env = os.environ.copy()
+    env["SEARCHABLE_PDF"] = os.path.abspath(searchable_pdf)
     try:
-        result = subprocess.run([
-            sys.executable, temp_script
-        ], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            [sys.executable, "extract_po_info.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print("[BASIC EXTRACT STDERR]", result.stderr)
         print("Basic PO extraction completed")
     except subprocess.CalledProcessError as e:
         print(f"Basic extraction failed: {e}")
@@ -80,8 +80,6 @@ def process_pdf_file(input_pdf_path):
         with open(error_file, 'w') as ef:
             ef.write(f"Basic Extraction Error\nSTDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}\n")
         return False
-    finally:
-        os.unlink(temp_script)
     
     # Step 3: Extract detailed information
     print("\\n=== Step 3: Detailed Information Extraction ===")
@@ -129,33 +127,76 @@ def process_pdf_file(input_pdf_path):
                         
                         if success:
                             print(f"✅ PO {po_data.get('purchase_order_number')} successfully added to FileMaker")
-                            
                             # Update JSON with FileMaker status
                             po_data['filemaker_status'] = 'success'
                             po_data['filemaker_timestamp'] = datetime.now().isoformat()
-                            # Send success notification
+                            # Telemetry from last FM call
+                            po_data['filemaker_status_code'] = fm.last_status_code
+                            po_data['filemaker_response'] = fm.last_response_text
+                            po_data['filemaker_script_error'] = fm.last_script_error
+                            po_data['filemaker_script_result'] = fm.last_script_result
+                            po_data['filemaker_record_id'] = fm.last_record_id
+                            # Send success notification via Dashboard API
                             try:
-                                from dashboard.notifications import notification_manager
-                                notification_manager.send_notification(
-                                    title=f"✅ FileMaker record created for PO {po_data.get('purchase_order_number')}",
-                                    message=f"PO {po_data.get('purchase_order_number')} was successfully created in FileMaker.",
-                                    po_number=po_data.get('purchase_order_number'),
-                                    notification_type="success"
+                                urls_env = os.getenv(
+                                    "DASHBOARD_URLS",
+                                    "http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send",
                                 )
+                                dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
+                                user = os.getenv("DASHBOARD_AUTH_USER", "anthony")
+                                pwd = os.getenv("DASHBOARD_AUTH_PASS", "password")
+                                auth = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
+                                headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
+                                payload = {
+                                    "title": f"✅ FileMaker record created for PO {po_data.get('purchase_order_number')}",
+                                    "message": f"PO {po_data.get('purchase_order_number')} created. scriptErr={fm.last_script_error}",
+                                    "po_number": po_data.get('purchase_order_number'),
+                                    "type": "success",
+                                }
+                                for url in dashboard_urls:
+                                    try:
+                                        r = requests.post(url, json=payload, headers=headers, timeout=10)
+                                        if r.status_code == 200:
+                                            print(f"Dashboard notified: {url}")
+                                            break
+                                    except Exception as e:
+                                        print(f"Dashboard notify failed via {url}: {e}")
                             except Exception as notify_err:
                                 print(f"Notification error: {notify_err}")
                         else:
                             print(f"❌ Failed to add PO {po_data.get('purchase_order_number')} to FileMaker")
                             po_data['filemaker_status'] = 'failed'
-                            # Send error notification
+                            # Telemetry from last FM call
+                            po_data['filemaker_status_code'] = fm.last_status_code
+                            po_data['filemaker_response'] = fm.last_response_text
+                            po_data['filemaker_error'] = fm.last_error
+                            po_data['filemaker_script_error'] = fm.last_script_error
+                            po_data['filemaker_script_result'] = fm.last_script_result
+                            # Send error notification via Dashboard API
                             try:
-                                from dashboard.notifications import notification_manager
-                                notification_manager.send_notification(
-                                    title=f"❌ FileMaker Error for PO {po_data.get('purchase_order_number')}",
-                                    message=f"Failed to create FileMaker record for PO {po_data.get('purchase_order_number')}",
-                                    po_number=po_data.get('purchase_order_number'),
-                                    notification_type="error"
+                                urls_env = os.getenv(
+                                    "DASHBOARD_URLS",
+                                    "http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send",
                                 )
+                                dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
+                                user = os.getenv("DASHBOARD_AUTH_USER", "anthony")
+                                pwd = os.getenv("DASHBOARD_AUTH_PASS", "password")
+                                auth = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
+                                headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
+                                payload = {
+                                    "title": f"❌ FileMaker Error for PO {po_data.get('purchase_order_number')}",
+                                    "message": f"Failed FM for PO {po_data.get('purchase_order_number')} (status={fm.last_status_code}, scriptErr={fm.last_script_error})",
+                                    "po_number": po_data.get('purchase_order_number'),
+                                    "type": "error",
+                                }
+                                for url in dashboard_urls:
+                                    try:
+                                        r = requests.post(url, json=payload, headers=headers, timeout=10)
+                                        if r.status_code == 200:
+                                            print(f"Dashboard notified: {url}")
+                                            break
+                                    except Exception as e:
+                                        print(f"Dashboard notify failed via {url}: {e}")
                             except Exception as notify_err:
                                 print(f"Notification error: {notify_err}")
                     else:

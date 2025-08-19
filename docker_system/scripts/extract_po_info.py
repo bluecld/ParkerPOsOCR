@@ -10,8 +10,7 @@ import re
 import json
 import os
 
-# Configure Tesseract path
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Use system tesseract (container has it installed)
 
 def extract_text_from_pdf(pdf_path):
     """Extract all text from PDF using OCR"""
@@ -45,21 +44,22 @@ def extract_po_number(text):
 
 def extract_page_count(text):
     """Extract page count from 'Page X of Y' format with OCR error handling"""
-    # Try multiple patterns to handle OCR errors
+    # Try multiple patterns to handle OCR and font artifacts
     patterns = [
-        r'Page\s+\d+\s+of\s+(\d+)',      # Standard: "Page 1 of 2"
-        r'Page\s+[l1]\s*of\s*(\d+)',     # OCR error: "Page lof 2" or "Page 1of 2"
-        r'[l1]\s*of\s*(\d+)',            # Minimal: "lof 2" or "1of 2"
+        r'Page\s+\d+\s+of\s+(\d+)',        # Standard: "Page 1 of 2"
+        r'Page\s+[l1!itI]?\s*of\s*(\d+)',   # OCR errors for the X value
+        r'Page\s+\S+\s+of\s+(\d+)',        # Any token for X (e.g., 'tof')
+        r'[l1!itI]\s*of\s*(\d+)',           # Minimal: "lof 2" or "1of 2"
     ]
-    
+
     for pattern in patterns:
         matches = re.findall(pattern, text, re.IGNORECASE)
         if matches:
-            # Take the first reasonable page count (1-50 pages)
+            # Take the first reasonable page count (1-200 pages)
             for match in matches:
                 try:
                     count = int(match)
-                    if 1 <= count <= 50:
+                    if 1 <= count <= 200:
                         return count
                 except ValueError:
                     continue
@@ -117,11 +117,13 @@ def main():
     
     if not po_number:
         print("Could not find purchase order number starting with 455")
-        return
+        import sys as _sys
+        _sys.exit(1)
     
     if not page_count:
         print("Could not find page count information")
-        return
+        import sys as _sys
+        _sys.exit(1)
     
     print(f"Found PO Number: {po_number}")
     print(f"Found Page Count: {page_count}")

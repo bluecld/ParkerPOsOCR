@@ -18,6 +18,20 @@ class PDFPrintHandler(FileSystemEventHandler):
         self.printed_files = set()
         self.watch_dir = "/Users/Shared/ParkerPOsOCR/exports"
         self.printed_dir = "/Users/Shared/ParkerPOsOCR/exports/printed"
+        self.last_seen_times = {}
+        # CUPS printing options candidates (first that works will be used)
+        env_opts = os.environ.get("CUPS_OPTIONS", "").strip()
+        if env_opts:
+            # honor environment override (split on spaces)
+            self.lp_option_sets = [env_opts.split()]
+        else:
+            # Prefer fit-to-page on Letter, then generic fit options, then scaling fallback
+            self.lp_option_sets = [
+                ['-o', 'fit-to-page', '-o', 'media=Letter'],
+                ['-o', 'fit-to-page'],
+                ['-o', 'fitplot'],                     # legacy option name on some drivers
+                ['-o', 'scaling=95'],                  # safe shrink fallback
+            ]
         
         # Create printed directory if it doesn't exist
         self.ensure_printed_directory()
@@ -63,12 +77,12 @@ class PDFPrintHandler(FileSystemEventHandler):
             return
             
         print(f"\n📄 New PDF detected: {os.path.basename(file_path)}")
-        
-        # Wait a moment for file to be fully written
-        time.sleep(2)
-        
-        # Print the PDF
-        self.print_pdf(file_path)
+        # Wait for file to be fully written and stable
+        if self.wait_for_file_ready(file_path):
+            # Print the PDF
+            self.print_pdf(file_path)
+        else:
+            print("⚠️ File did not become ready in time; skipping this event")
         
         # Mark as processed
         self.printed_files.add(file_path)
@@ -82,24 +96,73 @@ class PDFPrintHandler(FileSystemEventHandler):
         
         # Only process PDF files that haven't been printed yet
         if file_path.lower().endswith('.pdf') and file_path not in self.printed_files:
+            # Debounce frequent modify events
+            now = time.time()
+            last = self.last_seen_times.get(file_path, 0)
+            if now - last < 1.0:
+                return
+            self.last_seen_times[file_path] = now
+
             print(f"\n📄 PDF modified/completed: {os.path.basename(file_path)}")
-            time.sleep(1)  # Brief wait for file completion
-            self.print_pdf(file_path)
-            self.printed_files.add(file_path)
+            if self.wait_for_file_ready(file_path):
+                self.print_pdf(file_path)
+                self.printed_files.add(file_path)
+            else:
+                print("⚠️ File not yet ready; will wait for next modify event")
+
+    def wait_for_file_ready(self, file_path, checks: int = 4, interval: float = 0.5) -> bool:
+        """Ensure file size is stable and file is readable before printing"""
+        try:
+            prev_size = -1
+            stable_count = 0
+            for _ in range(checks):
+                if not os.path.exists(file_path):
+                    time.sleep(interval)
+                    continue
+                size = os.path.getsize(file_path)
+                if size > 0 and size == prev_size:
+                    stable_count += 1
+                else:
+                    stable_count = 0
+                prev_size = size
+                # Try to open the file for reading to ensure no exclusive lock
+                try:
+                    with open(file_path, 'rb') as f:
+                        head = f.read(5)
+                        # Basic PDF header check
+                        if head != b'%PDF-':
+                            pass
+                except Exception:
+                    stable_count = 0
+                if stable_count >= 2:
+                    return True
+                time.sleep(interval)
+        except Exception as e:
+            print(f"⚠️ File readiness check error: {e}")
+        return False
     
     def print_pdf(self, file_path):
         """Print a PDF file and move it to printed folder"""
         try:
             print(f"🖨️ Sending to printer: {os.path.basename(file_path)}")
+
+            last_error = None
+            result = None
+            used_args = None
+            for opts in self.lp_option_sets:
+                args = ['lp'] + opts + [file_path]
+                used_args = args
+                result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    break
+                last_error = result.stderr.strip()
             
-            # Use lp command to print
-            result = subprocess.run(['lp', file_path], 
-                                  capture_output=True, text=True, timeout=30)
-            
-            if result.returncode == 0:
+            if result and result.returncode == 0:
                 # Parse job ID from output
                 job_info = result.stdout.strip()
                 print(f"✅ Print job submitted: {job_info}")
+                if used_args:
+                    print(f"   Options: {' '.join(used_args[1:-1])}")
                 
                 # Log the print job
                 self.log_print_job(file_path, job_info)
@@ -108,12 +171,16 @@ class PDFPrintHandler(FileSystemEventHandler):
                 self.move_to_printed_folder(file_path)
                 
             else:
-                print(f"❌ Print failed: {result.stderr}")
+                err = last_error or (result.stderr.strip() if result else 'Unknown error')
+                print(f"❌ Print failed: {err}")
+                self.log_print_job(file_path, f"PRINT_FAILED: {err}")
                 
         except subprocess.TimeoutExpired:
             print("⚠️ Print command timed out")
+            self.log_print_job(file_path, "PRINT_TIMEOUT")
         except Exception as e:
             print(f"❌ Print error: {str(e)}")
+            self.log_print_job(file_path, f"PRINT_ERROR: {str(e)}")
     
     def move_to_printed_folder(self, file_path):
         """Move printed PDF to the printed subfolder"""
@@ -152,7 +219,16 @@ class PDFPrintHandler(FileSystemEventHandler):
                     print(f"📄 Found existing PDF: {file_path.name}")
                     
                     if auto_mode:
-                        print(f"🤖 Auto mode: Skipping existing file {file_path.name}")
+                        # In auto mode, attempt to print existing files that are not already in the printed folder
+                        printed_candidate = os.path.join(self.printed_dir, file_path.name)
+                        if os.path.exists(printed_candidate):
+                            print(f"↪️ Already printed previously, skipping: {file_path.name}")
+                        else:
+                            if self.wait_for_file_ready(file_path_str):
+                                print(f"🤖 Auto mode: Printing existing file {file_path.name}")
+                                self.print_pdf(file_path_str)
+                            else:
+                                print(f"⚠️ Existing file not ready yet, will rely on modify events: {file_path.name}")
                     else:
                         # Ask user if they want to print existing files
                         response = input(f"Print {file_path.name}? (y/n): ").lower().strip()

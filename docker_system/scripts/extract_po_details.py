@@ -10,8 +10,7 @@ import re
 import json
 import os
 
-# Configure Tesseract path
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Use system tesseract in container (no hardcoded Windows path)
 
 def extract_text_from_pdf(pdf_path):
     """Extract all text from PDF using OCR with better accuracy"""
@@ -103,23 +102,19 @@ def extract_production_order(text):
 
 def extract_revision(text):
     """Extract revision number following 'REV' - clean to 1-3 characters"""
-    # Look for REV followed by alphanumeric characters
-    pattern = r'REV\s*([A-Z0-9]+)'
+    # Prefer a single letter/letter+digit right after REV to avoid grabbing unrelated tokens
+    pattern = r'\bREV\s*([A-Z](?:[0-9])?)\b'
     matches = re.findall(pattern, text, re.IGNORECASE)
     if matches:
-        revision = matches[0]
-        # Clean up revision - take only first 1-3 alphanumeric characters
-        clean_revision = re.match(r'^([A-Z0-9]{1,3})', revision.upper())
-        if clean_revision:
-            return clean_revision.group(1)
-        else:
-            # Fallback - take first character if it's alphanumeric
-            if revision and revision[0].isalnum():
-                return revision[0].upper()
+        revision = matches[0].upper()
+        # Accept 1-2 char revisions like C, D1; otherwise trim to 1 char
+        if len(revision) in (1, 2):
+            return revision
+        return revision[:1]
     return None
 
 def extract_part_number(text, production_order):
-    """Extract part number from line above Production Order"""
+    """Extract part number near the Production Order, supporting alpha+numeric formats (e.g., WA904-8)."""
     if not production_order:
         return None
     
@@ -133,19 +128,20 @@ def extract_part_number(text, production_order):
             end_idx = min(len(lines), i+5)
             context_lines = lines[start_idx:end_idx]
             
-            # Pattern 1: Look for digit-digit (like 157710-30) with Op pattern (may be on separate lines)
+            # Pattern 1: Support both digit-digit (157710-30) and alpha+digits with optional dash (WA904-8)
             for j, context_line in enumerate(context_lines):
-                # Look for digits-digits pattern with Op on same line
-                dash_pattern_match = re.search(r'(\d+[-_]\d+)\s*[*]?([Oo]p\d+)', context_line, re.IGNORECASE)
+                # Look for part with OP on same line first
+                dash_pattern_match = re.search(r'(?:\b(\d+[-_]\d+)\b|\b([A-Z]{1,4}\d{2,6}(?:[-_]\d{1,3})?)\b)\s*[*]?([Oo]p\d+)', context_line, re.IGNORECASE)
                 if dash_pattern_match:
-                    part_base = dash_pattern_match.group(1)
-                    op_part = dash_pattern_match.group(2).upper()  # Keep original case for OP
+                    part_base = dash_pattern_match.group(1) or dash_pattern_match.group(2)
+                    part_base = part_base.upper()
+                    op_part = dash_pattern_match.group(3).upper()
                     return f"{part_base}*{op_part}"
                 
-                # Look for digits-digits pattern that might have Op on next line or nearby
-                dash_match = re.search(r'(\d+[-_]\d+)', context_line)
+                # Look for a part pattern that might have OP on next line or nearby
+                dash_match = re.search(r'(\d+[-_]\d+|[A-Z]{1,4}\d{2,6}(?:[-_]\d{1,3})?)', context_line, re.IGNORECASE)
                 if dash_match:
-                    part_base = dash_match.group(1)
+                    part_base = dash_match.group(1).upper()
                     
                     # Search in multiple subsequent lines for OP pattern
                     for k in range(j+1, min(j+5, len(context_lines))):
@@ -177,17 +173,17 @@ def extract_part_number(text, production_order):
                         # Find the Op number
                         op_match = re.search(rf'{digit_match}.*?([Oo]p\d+)', context_text, re.IGNORECASE)
                         if op_match:
-                            op_part = op_match.group(1).lower()
+                            op_part = op_match.group(1).upper()
                             return f"{digit_match}*{op_part}"
                         else:
                             return digit_match
             
-            # Pattern 3: Look for dash patterns without Op, but search harder for OP
+            # Pattern 3: Look for part patterns without OP, but search harder for OP
             candidate_part = None
             for j, context_line in enumerate(context_lines):
-                dash_matches = re.findall(r'(\d+[-_]\d+)', context_line)
+                dash_matches = re.findall(r'(\d+[-_]\d+|[A-Z]{1,4}\d{2,6}(?:[-_]\d{1,3})?)', context_line, re.IGNORECASE)
                 if dash_matches:
-                    candidate_part = dash_matches[-1]  # Take the last/closest one to production order
+                    candidate_part = dash_matches[-1].upper()  # Take the last/closest one to production order
                     
                     # Search the entire context for an OP that might go with this part
                     full_context = ' '.join(context_lines)
@@ -225,110 +221,216 @@ def extract_quantity_and_dock_date(text):
     
     lines = text.split('\n')
     
-    # Strategy 1: Smart context-aware extraction
-    # Look for lines with item/part/revision/quantity/unit/dock date context
+    # Strategy 0: Item-number anchored (prefer line item 10, else 20)
+    def is_item_line(line: str, item_no: str) -> bool:
+        # Consider it an item row if the item number appears near the left within first ~20 chars
+        prefix = line[:20]
+        return re.search(rf"\b{item_no}\b", prefix) is not None
+
+    def extract_qty_from_line(line: str, next_lines: list[str] | None = None):
+        nonlocal dock_date
+        # Capture dock date from this line if present
+        dm = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', line)
+        if dm and not dock_date:
+            dock_date = dm.group(1)
+
+        # Find unit position if any
+        unit_match = re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE)
+        unit_pos = unit_match.start() if unit_match else None
+
+        # Define a left region to search for quantity: before 'NET' or before first $price, or before unit
+        left_region = line
+        m_net = re.search(r'\bNET\b', line, re.IGNORECASE)
+        if m_net:
+            left_region = line[:m_net.start()]
+        m_dollar = re.search(r'\$\s*\d', left_region)
+        if m_dollar:
+            left_region = left_region[:m_dollar.start()]
+        if unit_pos is not None and unit_pos < len(left_region):
+            left_region = left_region[:unit_pos]
+
+        # Prefer the LARGEST .00 before the unit (quantity usually larger than unit price)
+        mdec = [int(m.group(1)) for m in re.finditer(r'\b(\d{1,4})\.00\b', left_region)]
+        if mdec:
+            candidates = [v for v in mdec if 1 <= v <= 2000]
+            if candidates:
+                return max(candidates)
+
+        # As a fallback, consider integers in left region but ignore leading item numbers like 10/20 at start
+        int_positions = [(int(m.group(1)), m.start()) for m in re.finditer(r'\b(\d{1,4})\b', left_region)]
+        filtered = []
+        for val, pos in int_positions:
+            # Skip common item numbers at the very left (e.g., '10', '20')
+            if pos <= 3 and val in (10, 20, 30, 40):
+                continue
+            if 1 <= val <= 2000:
+                filtered.append((pos, val))
+        if filtered:
+            # Choose the integer closest to the unit position (tends to be the quantity)
+            filtered.sort(key=lambda t: t[0], reverse=True)
+            return filtered[0][1]
+
+        # If not found before the unit/NET, search near the unit (to the right as well)
+        # Prefer quantities that end with .00 and are closest to the unit token
+        whole_line = line
+        candidates = []
+        for m in re.finditer(r'\b(\d{1,4})\.00\b', whole_line):
+            val = int(m.group(1))
+            if 1 <= val <= 2000:
+                dist = abs(m.start() - (unit_pos or m.start()))
+                candidates.append((dist, m.start(), val))
+        if candidates:
+            # Choose the closest .00 to the unit, but if distances tie, take the larger value
+            candidates.sort(key=lambda t: (t[0], -t[2], -t[1]))
+            return candidates[0][2]
+
+        # Vertical block fallback around this row (look into following few lines for Quantity/date/unit)
+        if next_lines:
+            window = [line] + next_lines[:5]
+            window_text = "\n".join(window)
+            # Try to find a date followed by a .00 and a unit token within a short window
+            dm2 = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', window_text)
+            if dm2 and not dock_date:
+                dock_date = dm2.group(1)
+            m2 = re.findall(r'\b(\d{1,3})\.00\b', window_text)
+            if m2:
+                # Choose the smallest plausible quantity (prices usually not .00)
+                vals = [int(x) for x in m2 if 1 <= int(x) <= 500]
+                if vals:
+                    return min(vals)
+        return None
+
+    # Try line item 10 first
     for i, line in enumerate(lines):
-        # Look for lines with units and at least one number
-        if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE) and re.search(r'\d', line):
-            # Try to find header context in previous lines
-            header_context = None
-            for h in range(max(0, i-3), i):
-                if re.search(r'Item.*Quantity.*UM.*Dock', lines[h], re.IGNORECASE):
-                    header_context = lines[h]
+        if is_item_line(line, '10'):
+            q = extract_qty_from_line(line, lines[i+1:i+6])
+            if q:
+                quantity = q
+                break
+    # Fallback to line item 20
+    if not quantity:
+        for i, line in enumerate(lines):
+            if is_item_line(line, '20'):
+                q = extract_qty_from_line(line, lines[i+1:i+6])
+                if q:
+                    quantity = q
                     break
-            segments = re.split(r'\s+', line.strip())
-            # Find the unit position
-            unit_idx = None
-            for idx, seg in enumerate(segments):
-                if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', seg, re.IGNORECASE):
-                    unit_idx = idx
-                    break
-            # Look for a number (integer or .00) before the unit
-            if unit_idx is not None:
-                for pos in range(max(0, unit_idx-3), unit_idx):
-                    seg = segments[pos]
-                    # Accept .00 or integer
-                    match = re.match(r'^(\d+)\.00$', seg)
-                    if match:
-                        val = int(match.group(1))
-                        if 1 <= val <= 1000:
-                            quantity = val
-                            break
-                    else:
-                        match = re.match(r'^(\d+)$', seg)
-                        if match:
-                            val = int(match.group(1))
-                            if 1 <= val <= 1000:
-                                quantity = val
-                                break
-            # Look for dock date in the same line
+    
+    # Strategy 1: Row-oriented extraction where a detail line contains qty(.00), unit, and date
+    for i, line in enumerate(lines):
+        # Must contain a unit and a date to be considered an item row
+        if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE) and re.search(r'\b\d{1,2}/\d{1,2}/\d{4}\b', line):
+            # Find .00 or integer tokens near the unit token
+            tokens = re.findall(r"[A-Za-z]+|\d+\.\d{2}|\d{1,4}/\d{1,2}/\d{4}|\d+", line)
+            # Locate unit index
+            unit_idx = next((idx for idx, t in enumerate(tokens) if re.fullmatch(r'(EA|LBS|PCS|EACH|PIECES?)', t, re.IGNORECASE)), None)
+            # Extract date straight from the row
             date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', line)
             if date_match:
                 dock_date = date_match.group(1)
+            if unit_idx is not None:
+                # Search up to 3 tokens before unit for a quantity number
+                for pos in range(max(0, unit_idx-3), unit_idx):
+                    t = tokens[pos]
+                    m1 = re.fullmatch(r'(\d+)\.00', t)
+                    m2 = re.fullmatch(r'(\d+)', t)
+                    cand = None
+                    if m1:
+                        cand = int(m1.group(1))
+                    elif m2:
+                        cand = int(m2.group(1))
+                    if cand is not None and 1 <= cand <= 1000:
+                        quantity = cand
+                        break
+            if quantity:
+                break
+
+    # Strategy 1b: If the tokenization above missed, look in a small window around unit/date
+    if not quantity:
+        for i, line in enumerate(lines):
+            if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE):
+                window = ' '.join(lines[max(0, i-1):i+2])
+                # Prefer a small integer with .00 in the window
+                candidates = [int(x) for x in re.findall(r'\b(\d{1,3})\.00\b', window)]
+                if candidates:
+                    quantity = min(candidates)
+                    # Grab date nearby
+                    dm = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', window)
+                    if dm:
+                        dock_date = dm.group(1)
+                    break
+
+    # Strategy 2: Smart context-aware extraction (respect column order; avoid Net Per)
+    for i, line in enumerate(lines):
+        if re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE) and re.search(r'\d', line):
+            # Column anchors
+            m_unit = re.search(r'\b(EA|LBS|PCS|EACH|PIECES?)\b', line, re.IGNORECASE)
+            pos_unit = m_unit.start() if m_unit else None
+            pos_net = line.lower().find('net')
+            # Prefer region before 'net' if it appears before the unit
+            if pos_net != -1 and (pos_unit is None or pos_net < pos_unit):
+                qty_region = line[:pos_net]
+            elif pos_unit is not None:
+                qty_region = line[:pos_unit]
+            else:
+                qty_region = line
+
+            # Prefer rightmost .00 in the region as quantity
+            decs = list(re.finditer(r'(\d+)\.00\b', qty_region))
+            if decs:
+                v = int(decs[-1].group(1))
+                if 1 <= v <= 2000:
+                    quantity = v
+            else:
+                ints = list(re.finditer(r'\b(\d{1,4})\b', qty_region))
+                if ints:
+                    v = int(ints[-1].group(1))
+                    if 1 <= v <= 2000:
+                        quantity = v
+
+            dm = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', line)
+            if dm and not dock_date:
+                dock_date = dm.group(1)
             if quantity:
                 break
     
-    # Strategy 2: Vertical table format - EA on separate lines
-    # Look for pattern: "EA" followed by "Quantity" followed by decimal number
+    # Strategy 3: Vertical table format - detect around either the unit line or the Quantity label
+    # Look for pattern: Quantity label with a nearby decimal and unit, or standalone unit line with nearby Quantity
     if not quantity:
         for i, line in enumerate(lines):
-            # Look for unit indicators in their own line
+            # Case A: Unit on its own line, find Quantity label nearby
             if re.match(r'^\s*(EA|LBS|PCS|EACH|PIECES?)\s*$', line, re.IGNORECASE):
-                # Check the next few lines for "Quantity" keyword and decimal
-                for offset in range(1, 5):  # Check next 4 lines
-                    if i + offset < len(lines):
-                        next_line = lines[i + offset].strip()
-                        
-                        # Look for "Quantity" indicator
-                        if re.search(r'\bQuantity\b', next_line, re.IGNORECASE):
-                            # Check lines after "Quantity" for decimal numbers
-                            for qty_offset in range(1, 3):  # Check next 2 lines after "Quantity"
-                                if i + offset + qty_offset < len(lines):
-                                    qty_line = lines[i + offset + qty_offset].strip()
-                                    
-                                    # Look for .00 decimal (whole number quantity)
-                                    qty_match = re.match(r'^\s*(\d+)\.00\s*$', qty_line)
-                                    if qty_match:
-                                        potential_qty = int(qty_match.group(1))
-                                        if 1 <= potential_qty <= 1000:
-                                            quantity = potential_qty
-                                            
-                                            # Look for date in surrounding context
-                                            context_lines = lines[max(0, i-3):i+8]
-                                            for context_line in context_lines:
-                                                date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', context_line)
-                                                if date_match:
-                                                    dock_date = date_match.group(1)
-                                                    break
-                                            break
-                            if quantity:
-                                break
-                        
-                        # Also check if the line directly contains a .00 decimal 
-                        # (case where "Quantity" label might be missing)
-                        direct_qty_match = re.match(r'^\s*(\d+)\.00\s*$', next_line)
-                        if direct_qty_match:
-                            potential_qty = int(direct_qty_match.group(1))
-                            if 1 <= potential_qty <= 1000:
-                                quantity = potential_qty
-                                
-                                # Look for date in surrounding context
-                                context_lines = lines[max(0, i-3):i+8]
-                                for context_line in context_lines:
-                                    date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', context_line)
-                                    if date_match:
-                                        dock_date = date_match.group(1)
-                                        break
-                                break
-                
-                if quantity:
-                    break
+                area = lines[max(0, i-6):i+7]
+                block = "\n".join(area)
+                # Prefer .00 values in the block
+                m = re.findall(r'\b(\d{1,3})\.00\b', block)
+                if m:
+                    vals = [int(x) for x in m if 1 <= int(x) <= 1000]
+                    if vals:
+                        quantity = min(vals)
+                        dm = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', block)
+                        if dm:
+                            dock_date = dock_date or dm.group(1)
+                        break
+            # Case B: Quantity label appears, then a decimal on the next few lines and a unit token in vicinity
+            if re.search(r'\bQuantity\b', line, re.IGNORECASE):
+                area = lines[max(0, i-3):i+7]
+                block = "\n".join(area)
+                m = re.findall(r'\b(\d{1,3})\.00\b', block)
+                if m:
+                    vals = [int(x) for x in m if 1 <= int(x) <= 1000]
+                    if vals:
+                        quantity = min(vals)
+                        dm = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', block)
+                        if dm:
+                            dock_date = dock_date or dm.group(1)
+                        break
     
-    # Strategy 3: Context-based extraction for part number lines
+    # Strategy 4: Context-based extraction for part number lines (anywhere in text)
     if not quantity:
         for i, line in enumerate(lines):
-            # Look for lines that contain part numbers (likely detail lines)
-            if re.search(r'\b\d{5,6}-\d+\b', line):  # Part number pattern like 154370-8
+            # Lines that contain likely part numbers
+            if re.search(r'\b(?:\d{5,6}-\d+|[A-Z]{1,4}\d{2,6}(?:-\d+)?)\b', line, re.IGNORECASE):
                 # This line likely contains item details including quantity
                 
                 # STRICT: Only look for quantities that end in .00
@@ -364,7 +466,7 @@ def extract_quantity_and_dock_date(text):
                                 pass
                     break
     
-    # Strategy 4: Generic fallback with strict validation
+    # Strategy 5: Generic fallback with strict validation
     if not quantity:
         # Look for any .00 values but apply strict filtering
         # Split text into lines and check each line carefully
@@ -384,7 +486,7 @@ def extract_quantity_and_dock_date(text):
                 if quantity:
                     break
     
-    # Strategy 5: Separate date extraction if not found with quantity
+    # Strategy 6: Separate date extraction if not found with quantity
     if not dock_date:
         # Find all dates and pick the most likely dock date
         date_matches = re.findall(r'(\d{1,2}/\d{1,2}/\d{4})', text)
@@ -409,21 +511,38 @@ def extract_payment_terms(text):
     # The text shows "30 Days from" on one line and "Date" and "of" "Invoice" on subsequent lines
     # Look for this pattern across multiple lines
     lines = text.split('\n')
+
+    # First, anchor on the 'Payment terms' label and scan the following lines
+    for i in range(len(lines)):
+        line = lines[i]
+        label_here = re.search(r'payment\s*terms\.?', line, re.IGNORECASE) is not None
+        # Handle split label across two lines ("Payment" then "terms")
+        if not label_here and i + 1 < len(lines):
+            next_line = lines[i+1]
+            label_here = ('payment' in line.lower() and 'terms' in next_line.lower())
+        if label_here:
+            block = ' '.join([l.strip() for l in lines[i:i+10] if l.strip()])
+            if all(w in block.lower() for w in ['30', 'days', 'from', 'date', 'of', 'invoice']):
+                return standard_terms, False
+            # If immediate next line is like '30 Days', capture it but mark non-standard
+            if i + 1 < len(lines):
+                nxt = lines[i+1].strip()
+                if re.fullmatch(r'30\s+Days', nxt, flags=re.IGNORECASE):
+                    # Look ahead a few lines to see if the full standard phrase follows
+                    lookahead = ' '.join([l.strip() for l in lines[i+1:i+8] if l.strip()]).lower()
+                    if all(w in lookahead for w in ['30', 'days', 'from', 'date', 'of', 'invoice']):
+                        return standard_terms, False
+                    return '30 Days', True
     
     for i, line in enumerate(lines):
-        if '30' in line and 'days' in line.lower() and 'from' in line.lower():
-            # Found potential start, check next few lines
-            combined_text = line
-            for j in range(i + 1, min(i + 4, len(lines))):
-                next_line = lines[j].strip()
-                if next_line:
-                    combined_text += ' ' + next_line
-                    # Check if we have the complete standard terms
-                    if 'date' in combined_text.lower() and 'invoice' in combined_text.lower():
-                        return standard_terms, False
+        if re.search(r'\b30\b', line) and 'days' in line.lower():
+            # Check a wider window to accommodate word-wrapped tokens
+            combined = ' '.join([l.strip() for l in lines[i:i+8] if l.strip()])
+            if all(w in combined.lower() for w in ['30', 'days', 'from', 'date', 'of', 'invoice']):
+                return standard_terms, False
     
     # Look for explicit payment terms section
-    payment_pattern = r'Payment\s+terms[:\s]*([^\n]+)'
+    payment_pattern = r'Payment\s*terms[:\.]*\s*([^\n]+)'
     match = re.search(payment_pattern, text, re.IGNORECASE)
     if match:
         terms = match.group(1).strip()
@@ -431,8 +550,12 @@ def extract_payment_terms(text):
         return terms, is_non_standard
     
     # Look for any mention of payment terms in broader context
-    for line in lines:
+    for i, line in enumerate(lines):
         if 'payment' in line.lower() and 'terms' in line.lower():
+            # Try to build a contiguous phrase following the label
+            combined = ' '.join([l.strip() for l in lines[i:i+6] if l.strip()])
+            if '30 days' in combined.lower() and 'invoice' in combined.lower():
+                return standard_terms, False
             line_clean = ' '.join(line.split())
             return line_clean, True  # Found but likely non-standard
     
@@ -459,12 +582,25 @@ def extract_vendor_info(text):
             vendor_name = vendor_full
             break
     
+    # Strategy 1b: Handle "Confirmed with <VENDOR>" phrasing
+    if not vendor_name:
+        m = re.search(r'confirmed\s+with\s+([A-Z0-9\s\.&,-]+)', text, re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip()
+            # Normalize common endings
+            cand = re.sub(r'\s{2,}', ' ', cand)
+            # Trim trailing address fragments
+            cand = re.split(r'\s(Inc\.?|LLC|Corp\.?|Company)\b', cand, maxsplit=1, flags=re.IGNORECASE)[0].strip() + ('' if not re.search(r'\b(Inc\.?|LLC|Corp\.?|Company)\b', cand, re.IGNORECASE) else '')
+            # If TEK appears, force canonical name
+            if 'TEK' in cand.upper():
+                vendor_name = 'TEK ENTERPRISES, INC.'
+
     # Strategy 2: Generic vendor extraction - look for vendor field patterns
     if not vendor_name:
         for i, line in enumerate(lines):
             line_upper = line.upper()
             # Look for vendor section indicators
-            if any(indicator in line_upper for indicator in ['VENDOR', 'SUPPLIER', 'FROM:']):
+            if any(indicator in line_upper for indicator in ['VENDOR ADDRESS', 'VENDOR', 'SUPPLIER', 'FROM:']):
                 # Check next few lines for vendor name
                 for j in range(i + 1, min(i + 4, len(lines))):
                     next_line = lines[j].strip()
@@ -504,8 +640,11 @@ def extract_vendor_info(text):
             vendor_name = confirmed_matches[0].strip()
     
     if vendor_name:
+        # Normalize TEK vendor name
+        if 'TEK' in vendor_name.upper():
+            vendor_name = 'TEK ENTERPRISES, INC.'
         # Determine if this is a non-TEK vendor
-        is_non_tek = "TEK ENTERPRISES" not in vendor_name.upper()
+        is_non_tek = 'TEK ENTERPRISES' not in vendor_name.upper()
         return vendor_name, is_non_tek
     
     return None, True  # No vendor found, assume non-TEK
@@ -515,6 +654,11 @@ def extract_vendor_info(text):
 def extract_buyer_name(text):
     """Extract buyer's name from the document"""
     lines = text.split('\n')
+
+    # Try robust capture across newlines immediately following the label
+    m_block = re.search(r'Buyer/phone\s+([A-Za-z][A-Za-z\-\.]+(?:\s+[A-Za-z][A-Za-z\-\.]+)+)\s*/', text, re.IGNORECASE)
+    if m_block:
+        return m_block.group(1).strip()
     
     # First, look for known buyers (configurable list)
     known_buyers = ["Nataly Hernandez", "Daniel Rodriguez"]
@@ -525,14 +669,25 @@ def extract_buyer_name(text):
     # Generic approach: Look for buyer name pattern - appears after "Buyer/phone" field
     for i, line in enumerate(lines):
         line_lower = line.lower()
-        if 'buyer/phone' in line_lower or 'buyer:' in line_lower or 'buyer' in line_lower:
-            for j in range(i + 1, min(i + 4, len(lines))):
-                next_line = lines[j].strip()
-                if next_line and len(next_line) > 2:
-                    # Avoid picking up fax/email/phone/number
-                    if not any(x in next_line.lower() for x in ['fax', 'email', 'phone', 'number']):
-                        if re.match(r'^[A-Za-z\s\.\-]+$', next_line) and len(next_line.split()) >= 2:
-                            return next_line
+        if 'buyer/phone' in line_lower:
+            # Try inline: "Buyer/phone <Name> / <phone>"
+            m = re.search(r'buyer/phone\s+([A-Za-z]+(?:\s+[A-Za-z\-]+)+)\s*/', line, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+            # Handle line breaks where name spans the next lines before the '/'
+            name_parts = []
+            for j in range(i + 1, min(i + 6, len(lines))):
+                nxt = lines[j].strip()
+                # Stop if we hit a slash (likely phone) or digits/email
+                if '/' in nxt or re.search(r'\d|@', nxt):
+                    break
+                if nxt and re.fullmatch(r'[A-Za-z][A-Za-z\-\.]*', nxt):
+                    name_parts.append(nxt)
+                # Stop after capturing two parts (First Last)
+                if len(name_parts) >= 2:
+                    break
+            if name_parts:
+                return ' '.join(name_parts)
 
     # Alternative: Look for email patterns and extract name before @
     email_pattern = r'([A-Za-z\s]+)\s*[<(]?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})[>)]?'

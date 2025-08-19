@@ -40,55 +40,47 @@ class POProcessorHandler(FileSystemEventHandler):
             folder.mkdir(parents=True, exist_ok=True)
     
     def send_notification(self, title, message, po_number=None, notification_type="info"):
-        """Send notification to dashboard API and push app"""
+        """Send notification to the Dashboard API (centralized dispatcher)."""
         try:
             payload = {
                 "title": title,
                 "message": message,
                 "po_number": po_number,
-                "type": notification_type
+                "type": notification_type,
             }
-            dashboard_urls = [
-                "http://192.168.0.62:8443/api/notifications/send",
-                "http://127.0.0.1:8443/api/notifications/send"
-            ]
+
+            # Allow overriding dashboard URLs and auth via environment
+            urls_env = os.getenv(
+                "DASHBOARD_URLS",
+                "http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send",
+            )
+            dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
+
             import base64
-            auth_string = base64.b64encode(b"anthony:password").decode('ascii')
-            headers = {
-                'Authorization': f'Basic {auth_string}',
-                'Content-Type': 'application/json'
-            }
+
+            user = os.getenv("DASHBOARD_AUTH_USER", "anthony")
+            pwd = os.getenv("DASHBOARD_AUTH_PASS", "password")
+            auth_string = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
+            headers = {"Authorization": f"Basic {auth_string}", "Content-Type": "application/json"}
+
             sent = False
             for url in dashboard_urls:
                 try:
                     response = requests.post(url, json=payload, headers=headers, timeout=10)
                     if response.status_code == 200:
-                        logging.info(f"Notification sent: {title}")
+                        logging.info(f"Dashboard notification sent via {url}: {title}")
                         sent = True
+                        break
                     else:
-                        logging.warning(f"Notification failed with status {response.status_code}: {response.text}")
+                        logging.warning(
+                            f"Dashboard notification failed ({response.status_code}) via {url}: {response.text}"
+                        )
                 except Exception as url_error:
-                    logging.warning(f"Failed to reach {url}: {url_error}")
+                    logging.warning(f"Failed to reach dashboard at {url}: {url_error}")
                     continue
-            # Push app notification (e.g., Pushover)
-            try:
-                push_url = "https://api.pushover.net/1/messages.json"
-                push_payload = {
-                    "token": "YOUR_PUSHOVER_APP_TOKEN",
-                    "user": "YOUR_PUSHOVER_USER_KEY",
-                    "message": message,
-                    "title": title
-                }
-                push_response = requests.post(push_url, data=push_payload, timeout=10)
-                if push_response.status_code == 200:
-                    logging.info(f"Push notification sent: {title}")
-                    sent = True
-                else:
-                    logging.warning(f"Push notification failed: {push_response.text}")
-            except Exception as push_error:
-                logging.error(f"Push notification error: {push_error}")
+
             if not sent:
-                logging.error(f"All notification methods failed for: {title}")
+                logging.error(f"All dashboard endpoints failed for notification: {title}")
             return sent
         except Exception as e:
             logging.error(f"Failed to send notification: {e}")
@@ -110,6 +102,14 @@ class POProcessorHandler(FileSystemEventHandler):
             else:
                 logging.error(f"File completion timeout for: {file_path}")
                 self.handle_failed_processing(file_path, "File was not completed within timeout period")
+                # Record a simple diagnostic file for visibility
+                try:
+                    error_folder = os.getenv('ERROR_FOLDER', '/app/errors')
+                    error_file = os.path.join(error_folder, f"{file_path.stem}_file_incomplete.txt")
+                    with open(error_file, 'w') as ef:
+                        ef.write("File completion timeout. The scanner likely hadn't finished writing pages.\n")
+                except Exception as log_err:
+                    logging.error(f"Failed to write timeout diagnostic: {log_err}")
     
     def wait_for_file_completion(self, file_path, timeout=120, stable_time=10):
         """Wait for file to be completely written by monitoring size stability"""

@@ -1,39 +1,47 @@
+version: "3.8"
 services:
   po-processor:
     build: .
     container_name: po-processor
     network_mode: host
+    restart: unless-stopped
     volumes:
-      # Mount your actual NAS paths here
       - /volume1/Main/Main/ParkerPOsOCR/Scans:/app/input
-      - /volume1/Main/Main/ParkerPOsOCR/POs:/app/processed  
+      - /volume1/Main/Main/ParkerPOsOCR/POs:/app/processed
       - /volume1/Main/Main/ParkerPOsOCR/Archive:/app/archive
       - /volume1/Main/Main/ParkerPOsOCR/Errors:/app/errors
-      # Mount logs for debugging
       - ./logs:/app/logs
+    environment:
+      - TZ=America/Los_Angeles
+      - PYTHONUNBUFFERED=1
+      - FILEMAKER_ENABLED=true
+      - FILEMAKER_SERVER=https://192.168.0.105:443
+      - FILEMAKER_DATABASE=PreInventory
+      - FILEMAKER_LAYOUT=PreInventory
+      - FILEMAKER_SCRIPT=PDFTimesheet
+      - FILEMAKER_PRINT_LAYOUT=Time Clock Reduced
+      - FILEMAKER_USERNAME=JSON
+      - FILEMAKER_PASSWORD=Windu63Purple!
+      - DASHBOARD_URLS=http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send
+      - DASHBOARD_AUTH_USER=anthony
+      - DASHBOARD_AUTH_PASS=password
 
   po-dashboard:
     build: ../dashboard
     container_name: po-dashboard
     network_mode: host
+    restart: unless-stopped
     volumes:
       - /volume1/Main/Main/ParkerPOsOCR/dashboard/logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - TZ=America/Los_Angeles
       - PYTHONUNBUFFERED=1
-      # FileMaker Data API Configuration
-      - FILEMAKER_ENABLED=true  # Enable FileMaker integration
+      - FILEMAKER_ENABLED=true
       - FILEMAKER_SERVER=https://192.168.0.105:443
       - FILEMAKER_DATABASE=PreInventory
       - FILEMAKER_LAYOUT=PreInventory
+      - FILEMAKER_SCRIPT=PDFTimesheet
+      - FILEMAKER_PRINT_LAYOUT=Time Clock Reduced
       - FILEMAKER_USERNAME=JSON
       - FILEMAKER_PASSWORD=Windu63Purple!
-    restart: unless-stopped
-    
-    # For FileMaker integration later
-    # environment:
-    #   - FILEMAKER_SERVER=your.filemaker.server
-    #   - FILEMAKER_DATABASE=po_database
-    #   - FILEMAKER_USERNAME=api_user
-    #   - FILEMAKER_PASSWORD=secure_password
