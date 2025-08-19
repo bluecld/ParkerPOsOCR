@@ -94,6 +94,7 @@ def fix_common_ocr_errors(text):
 def validate_part_number_with_reference(ocr_part_number):
     """
     Validate and correct part number using reference database
+    PRESERVES the original OP code from OCR - only corrects the part number portion
     Returns: (corrected_part_number, confidence_score, correction_info)
     """
     if not ocr_part_number:
@@ -105,26 +106,28 @@ def validate_part_number_with_reference(ocr_part_number):
         # No reference data available, return as-is
         return ocr_part_number, 0.5, "No reference data available"
         
-    # Clean the OCR text
+    # Clean the OCR text and preserve the original OP code
     clean_ocr = ocr_part_number.strip().upper()
     if '*' in clean_ocr:
         clean_part = clean_ocr.split('*')[0]
-        op_part = '*' + clean_ocr.split('*')[1]
+        original_op_part = '*' + clean_ocr.split('*')[1]  # PRESERVE original OP
     else:
         clean_part = clean_ocr
-        op_part = ''
+        original_op_part = ''
         
     # 1. Exact match check
     if clean_part in part_numbers:
-        full_match = part_to_full.get(clean_part, clean_part + op_part)
-        return full_match, 1.0, f"Exact match: {clean_part}"
+        # Use original OP code, not database OP code
+        corrected_full = clean_part + original_op_part
+        return corrected_full, 1.0, f"Exact match: {clean_part}"
         
     # 2. Try OCR error corrections
     candidates = fix_common_ocr_errors(clean_part)
     for candidate in candidates:
         if candidate.upper() in part_numbers:
-            full_match = part_to_full.get(candidate.upper(), candidate.upper() + op_part)
-            return full_match, 0.95, f"OCR correction: {clean_part} → {candidate.upper()}"
+            # Use original OP code, not database OP code
+            corrected_full = candidate.upper() + original_op_part
+            return corrected_full, 0.95, f"OCR correction: {clean_part} → {candidate.upper()}"
             
     # 3. Fuzzy matching for close matches
     from difflib import get_close_matches
@@ -132,8 +135,9 @@ def validate_part_number_with_reference(ocr_part_number):
         close_matches = get_close_matches(clean_part, part_numbers, n=3, cutoff=0.85)
         if close_matches:
             best_match = close_matches[0]
-            full_match = part_to_full.get(best_match, best_match + op_part)
-            return full_match, 0.8, f"Fuzzy match: {clean_part} → {best_match}"
+            # Use original OP code, not database OP code
+            corrected_full = best_match + original_op_part
+            return corrected_full, 0.8, f"Fuzzy match: {clean_part} → {best_match}"
     except:
         pass
         
