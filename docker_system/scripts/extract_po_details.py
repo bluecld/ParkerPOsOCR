@@ -9,8 +9,136 @@ import io
 import re
 import json
 import os
+from pathlib import Path
 
 # Use system tesseract in container (no hardcoded Windows path)
+
+# Global cache for part numbers validation
+_PART_NUMBERS_CACHE = None
+_PART_TO_FULL_CACHE = None
+
+def load_part_numbers_for_validation():
+    """Load part numbers from Excel file for validation (with caching)"""
+    global _PART_NUMBERS_CACHE, _PART_TO_FULL_CACHE
+    
+    if _PART_NUMBERS_CACHE is not None:
+        return _PART_NUMBERS_CACHE, _PART_TO_FULL_CACHE
+        
+    try:
+        import pandas as pd
+        excel_path = "/volume1/Main/Main/ParkerPOsOCR/docs/PartNumbers.xlsx"
+        
+        if not os.path.exists(excel_path):
+            print(f"Warning: Part numbers file not found at {excel_path}")
+            _PART_NUMBERS_CACHE = set()
+            _PART_TO_FULL_CACHE = {}
+            return _PART_NUMBERS_CACHE, _PART_TO_FULL_CACHE
+            
+        df = pd.read_excel(excel_path)
+        part_numbers = set()
+        part_to_full = {}
+        
+        for _, row in df.iterrows():
+            full_part = str(row['Part Number']).strip()
+            if '*' in full_part:
+                clean_part = full_part.split('*')[0].upper().strip()
+            else:
+                clean_part = full_part.upper().strip()
+            
+            part_numbers.add(clean_part)
+            part_to_full[clean_part] = full_part
+            
+        _PART_NUMBERS_CACHE = part_numbers
+        _PART_TO_FULL_CACHE = part_to_full
+        print(f"Loaded {len(part_numbers)} part numbers for validation")
+        
+    except Exception as e:
+        print(f"Warning: Could not load part numbers for validation: {e}")
+        _PART_NUMBERS_CACHE = set()
+        _PART_TO_FULL_CACHE = {}
+        
+    return _PART_NUMBERS_CACHE, _PART_TO_FULL_CACHE
+
+def fix_common_ocr_errors(text):
+    """Fix common OCR character recognition errors in part numbers"""
+    if not text:
+        return [text]
+        
+    # Common OCR mistakes for part numbers
+    fixes = {
+        'Q': '9',  # Q often misread as 9 (WAQ04 -> WA904)
+        'O': '0',  # O often misread as 0 (97O000 -> 970000)  
+        'I': '1',  # I often misread as 1
+        'S': '5',  # S sometimes misread as 5
+        'Z': '2',  # Z sometimes misread as 2
+        'G': '6',  # G sometimes misread as 6
+        'B': '8',  # B sometimes misread as 8
+    }
+    
+    corrected_candidates = [text]
+    
+    # Generate candidates by fixing one character at a time
+    for i, char in enumerate(text.upper()):
+        if char in fixes:
+            candidate = text[:i] + fixes[char] + text[i+1:]
+            corrected_candidates.append(candidate)
+            
+        # Also try the reverse (number to letter) for edge cases
+        for fix_char, fix_replacement in fixes.items():
+            if char == fix_replacement:
+                reverse_candidate = text[:i] + fix_char + text[i+1:]
+                corrected_candidates.append(reverse_candidate)
+    
+    return corrected_candidates
+
+def validate_part_number_with_reference(ocr_part_number):
+    """
+    Validate and correct part number using reference database
+    Returns: (corrected_part_number, confidence_score, correction_info)
+    """
+    if not ocr_part_number:
+        return ocr_part_number, 0.0, "Empty input"
+        
+    part_numbers, part_to_full = load_part_numbers_for_validation()
+    
+    if not part_numbers:
+        # No reference data available, return as-is
+        return ocr_part_number, 0.5, "No reference data available"
+        
+    # Clean the OCR text
+    clean_ocr = ocr_part_number.strip().upper()
+    if '*' in clean_ocr:
+        clean_part = clean_ocr.split('*')[0]
+        op_part = '*' + clean_ocr.split('*')[1]
+    else:
+        clean_part = clean_ocr
+        op_part = ''
+        
+    # 1. Exact match check
+    if clean_part in part_numbers:
+        full_match = part_to_full.get(clean_part, clean_part + op_part)
+        return full_match, 1.0, f"Exact match: {clean_part}"
+        
+    # 2. Try OCR error corrections
+    candidates = fix_common_ocr_errors(clean_part)
+    for candidate in candidates:
+        if candidate.upper() in part_numbers:
+            full_match = part_to_full.get(candidate.upper(), candidate.upper() + op_part)
+            return full_match, 0.95, f"OCR correction: {clean_part} → {candidate.upper()}"
+            
+    # 3. Fuzzy matching for close matches
+    from difflib import get_close_matches
+    try:
+        close_matches = get_close_matches(clean_part, part_numbers, n=3, cutoff=0.85)
+        if close_matches:
+            best_match = close_matches[0]
+            full_match = part_to_full.get(best_match, best_match + op_part)
+            return full_match, 0.8, f"Fuzzy match: {clean_part} → {best_match}"
+    except:
+        pass
+        
+    # 4. Return original if no match found
+    return ocr_part_number, 0.3, f"No match found in reference database"
 
 def extract_text_from_pdf(pdf_path):
     """Extract all text from PDF using OCR with better accuracy"""
@@ -136,7 +264,15 @@ def extract_part_number(text, production_order):
                     part_base = dash_pattern_match.group(1) or dash_pattern_match.group(2)
                     part_base = part_base.upper()
                     op_part = dash_pattern_match.group(3).upper()
-                    return f"{part_base}*{op_part}"
+                    raw_part = f"{part_base}*{op_part}"
+                    
+                    # Validate and correct the part number using reference database
+                    validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
+                    if confidence > 0.8:  # High confidence correction
+                        print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
+                        return validated_part
+                    else:
+                        return raw_part
                 
                 # Look for a part pattern that might have OP on next line or nearby
                 dash_match = re.search(r'(\d+[-_]\d+|[A-Z]{1,4}\d{2,6}(?:[-_]\d{1,3})?)', context_line, re.IGNORECASE)
@@ -150,14 +286,30 @@ def extract_part_number(text, production_order):
                             op_match = re.search(r'[*]?([Oo]p\d+)', search_line, re.IGNORECASE)
                             if op_match:
                                 op_part = op_match.group(1).upper()
-                                return f"{part_base}*{op_part}"
+                                raw_part = f"{part_base}*{op_part}"
+                                
+                                # Validate and correct the part number
+                                validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
+                                if confidence > 0.8:  # High confidence correction
+                                    print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
+                                    return validated_part
+                                else:
+                                    return raw_part
                     
                     # If no OP found, also search in the broader context around this part number
                     context_text = ' '.join(context_lines[max(0, j-3):min(len(context_lines), j+8)])
                     op_match = re.search(rf'{re.escape(part_base)}.*?([Oo]p\d+)', context_text, re.IGNORECASE)
                     if op_match:
                         op_part = op_match.group(1).upper()
-                        return f"{part_base}*{op_part}"
+                        raw_part = f"{part_base}*{op_part}"
+                        
+                        # Validate and correct the part number
+                        validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
+                        if confidence > 0.8:  # High confidence correction
+                            print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
+                            return validated_part
+                        else:
+                            return raw_part
                     
                     # Store this as a candidate in case we don't find anything better
                     candidate_part = part_base
@@ -174,9 +326,23 @@ def extract_part_number(text, production_order):
                         op_match = re.search(rf'{digit_match}.*?([Oo]p\d+)', context_text, re.IGNORECASE)
                         if op_match:
                             op_part = op_match.group(1).upper()
-                            return f"{digit_match}*{op_part}"
+                            raw_part = f"{digit_match}*{op_part}"
+                            
+                            # Validate and correct the part number
+                            validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
+                            if confidence > 0.8:  # High confidence correction
+                                print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
+                                return validated_part
+                            else:
+                                return raw_part
                         else:
-                            return digit_match
+                            # Validate standalone digit part
+                            validated_part, confidence, correction_info = validate_part_number_with_reference(digit_match)
+                            if confidence > 0.8:
+                                print(f"Part number validation: {digit_match} → {validated_part} ({correction_info})")
+                                return validated_part
+                            else:
+                                return digit_match
             
             # Pattern 3: Look for part patterns without OP, but search harder for OP
             candidate_part = None
@@ -192,14 +358,29 @@ def extract_part_number(text, production_order):
                     if op_matches:
                         # Take the first OP found (most likely to be associated)
                         op_part = op_matches[0].upper()
-                        return f"{candidate_part}*{op_part}"
+                        raw_part = f"{candidate_part}*{op_part}"
+                        
+                        # Validate and correct the part number
+                        validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
+                        if confidence > 0.8:  # High confidence correction
+                            print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
+                            return validated_part
+                        else:
+                            return raw_part
                     else:
                         # Return the part without OP for now, but keep looking
                         break
             
             # If we found a candidate part but no OP, add default *OP20
             if candidate_part:
-                return f"{candidate_part}*OP20"
+                raw_part = f"{candidate_part}*OP20"
+                # Validate and correct the part number using reference database
+                validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
+                if confidence > 0.8:  # High confidence correction
+                    print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
+                    return validated_part
+                else:
+                    return raw_part
             
             # Pattern 4: Look for standalone numbers near production order
             for j, context_line in enumerate(context_lines):
@@ -208,10 +389,23 @@ def extract_part_number(text, production_order):
                     for match in standalone_matches:
                         # Skip obvious non-part numbers (production orders start with 12)
                         if not match.startswith('12') and not match.startswith('455'):
-                            return match
+                            # Validate standalone part numbers too
+                            validated_part, confidence, correction_info = validate_part_number_with_reference(match)
+                            if confidence > 0.8:
+                                print(f"Part number validation: {match} → {validated_part} ({correction_info})")
+                                return validated_part
+                            else:
+                                return match
             
             break  # Found production order, stop looking
     
+    # Apply validation to any discovered part number before returning
+    if candidate_part:
+        validated_part, confidence, correction_info = validate_part_number_with_reference(candidate_part)
+        if confidence > 0.8:
+            print(f"Part number validation: {candidate_part} → {validated_part} ({correction_info})")
+            return validated_part
+            
     return None
 
 def extract_quantity_and_dock_date(text):
