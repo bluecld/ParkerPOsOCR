@@ -1900,6 +1900,163 @@ https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK"></textarea>
             }, 5000);
         }
 
+        function openNotificationSettings() {
+            // Modal HTML for notification settings
+            const settingsModalHTML = `
+                <div class="modal fade" id="notificationSettingsModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content" style="background: var(--bg-tertiary); color: var(--text-primary);">
+                            <div class="modal-header" style="border-bottom: 1px solid var(--border-color);">
+                                <h5 class="modal-title"><i class="fas fa-cog me-2"></i>Notification Settings</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" style="filter: invert(1);"></button>
+                            </div>
+                            <div class="modal-body" style="color: var(--text-primary);">
+                                <div id="notificationSettingsContent">
+                                    <div class="text-center">
+                                        <div class="spinner-border" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                        <p class="mt-2">Loading notification settings...</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                <button type="button" class="btn btn-success" onclick="saveNotificationSettings()">
+                                    <i class="fas fa-save"></i> Save Settings
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Remove existing modal if present
+            const existingModal = document.getElementById('notificationSettingsModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // Add new modal to body
+            document.body.insertAdjacentHTML('beforeend', settingsModalHTML);
+            
+            // Load current settings
+            loadNotificationSettings();
+            
+            // Show modal
+            new bootstrap.Modal(document.getElementById('notificationSettingsModal')).show();
+        }
+
+        function loadNotificationSettings() {
+            fetch('/api/notification-settings')
+                .then(response => response.json())
+                .then(config => {
+                    document.getElementById('notificationSettingsContent').innerHTML = `
+                        <div class="row">
+                            <div class="col-12">
+                                <h6><i class="fas fa-envelope me-2"></i>Email Notifications</h6>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="emailEnabled" ${config.email.enabled ? 'checked' : ''}>
+                                    <label class="form-check-label" for="emailEnabled">Enable Email Notifications</label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="emailAddress" class="form-label">Email Address</label>
+                                    <input type="email" class="form-control" id="emailAddress" value="${config.email.to_addresses[0] || ''}" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <h6><i class="fas fa-mobile-alt me-2"></i>Pushover Notifications</h6>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="pushoverEnabled" ${config.pushover.enabled ? 'checked' : ''}>
+                                    <label class="form-check-label" for="pushoverEnabled">Enable Pushover Notifications</label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="pushoverUserKey" class="form-label">Pushover User Key</label>
+                                    <input type="text" class="form-control" id="pushoverUserKey" value="${config.pushover.user_key || ''}" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                    <div class="form-text">Get your user key from <a href="https://pushover.net" target="_blank" style="color: var(--accent-blue);">pushover.net</a></div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <h6><i class="fab fa-telegram me-2"></i>Telegram Notifications</h6>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="telegramEnabled" ${config.telegram.enabled ? 'checked' : ''}>
+                                    <label class="form-check-label" for="telegramEnabled">Enable Telegram Notifications</label>
+                                </div>
+                                <div class="mb-2">
+                                    <label for="telegramBotToken" class="form-label">Bot Token</label>
+                                    <input type="text" class="form-control" id="telegramBotToken" value="${config.telegram.bot_token || ''}" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="telegramChatId" class="form-label">Chat ID</label>
+                                    <input type="text" class="form-control" id="telegramChatId" value="${config.telegram.chat_id || ''}" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <h6><i class="fas fa-globe me-2"></i>Webhook Notifications</h6>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="webhookEnabled" ${config.webhook.enabled ? 'checked' : ''}>
+                                    <label class="form-check-label" for="webhookEnabled">Enable Webhook Notifications</label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="webhookUrls" class="form-label">Webhook URLs (one per line)</label>
+                                    <textarea class="form-control" id="webhookUrls" rows="3" style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">${config.webhook.urls.join('\\n')}</textarea>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                })
+                .catch(error => {
+                    document.getElementById('notificationSettingsContent').innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Failed to load notification settings: ${error.message}
+                        </div>
+                    `;
+                });
+        }
+
+        function saveNotificationSettings() {
+            const config = {
+                email: {
+                    enabled: document.getElementById('emailEnabled').checked,
+                    to_addresses: [document.getElementById('emailAddress').value]
+                },
+                pushover: {
+                    enabled: document.getElementById('pushoverEnabled').checked,
+                    user_key: document.getElementById('pushoverUserKey').value
+                },
+                telegram: {
+                    enabled: document.getElementById('telegramEnabled').checked,
+                    bot_token: document.getElementById('telegramBotToken').value,
+                    chat_id: document.getElementById('telegramChatId').value
+                },
+                webhook: {
+                    enabled: document.getElementById('webhookEnabled').checked,
+                    urls: document.getElementById('webhookUrls').value.split('\n').filter(url => url.trim())
+                }
+            };
+
+            fetch('/api/notification-settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.status === 'success') {
+                    addNotification('Settings Saved', 'Notification settings have been updated successfully!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('notificationSettingsModal')).hide();
+                } else {
+                    addNotification('Save Failed', result.message || 'Failed to save notification settings', 'error');
+                }
+            })
+            .catch(error => {
+                addNotification('Save Error', `Failed to save settings: ${error.message}`, 'error');
+            });
+        }
+
         function getNotificationIcon(type) {
             switch (type) {
                 case 'success': return 'fa-check-circle';
@@ -2095,7 +2252,7 @@ https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK"></textarea>
 
         async function testNotifications() {
             try {
-                const response = await fetch('/api/notifications/test', {
+                const response = await fetch('/api/test-notifications', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

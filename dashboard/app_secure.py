@@ -408,6 +408,58 @@ def api_logs():
     except Exception as e:
         return {"error": str(e)}
 
+@app.route('/api/notification-settings', methods=['GET'])
+@login_required
+@ip_whitelist_required
+def api_get_notification_settings():
+    """API endpoint to get notification settings"""
+    try:
+        return jsonify(notification_manager.config)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/notification-settings', methods=['POST'])
+@login_required
+@ip_whitelist_required
+def api_save_notification_settings():
+    """API endpoint to save notification settings"""
+    try:
+        config = request.json
+        
+        # Validate the configuration structure
+        required_keys = ['email', 'pushover', 'telegram', 'webhook']
+        if not all(key in config for key in required_keys):
+            return jsonify({"status": "error", "message": "Invalid configuration structure"}), 400
+        
+        # Update the configuration
+        notification_manager.config = config
+        notification_manager.save_config()
+        
+        return jsonify({"status": "success", "message": "Notification settings saved successfully"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/test-notifications', methods=['POST'])
+@login_required
+@ip_whitelist_required
+def api_test_notifications():
+    """API endpoint to test notifications"""
+    try:
+        data = request.json
+        title = data.get('title', 'Test Notification')
+        message = data.get('message', 'This is a test notification')
+        
+        # Send test notification
+        results = notification_manager.send_notification(title, message, notification_type="info")
+        
+        return jsonify({
+            "status": "success", 
+            "results": results,
+            "message": "Test notifications sent"
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/api/json/<path:filename>')
 @login_required
 @ip_whitelist_required
