@@ -11,8 +11,12 @@ import os
 import sys
 import subprocess
 import json
+import urllib3
 from pathlib import Path
 from datetime import datetime
+
+# Suppress SSL certificate warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from filemaker_integration import FileMakerIntegration
 import base64
 import requests
@@ -140,7 +144,7 @@ def process_pdf_file(input_pdf_path):
                             try:
                                 urls_env = os.getenv(
                                     "DASHBOARD_URLS",
-                                    "http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send",
+                                    "https://192.168.0.62:9443/api/notifications/send,https://127.0.0.1:9443/api/notifications/send",
                                 )
                                 dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
                                 user = os.getenv("DASHBOARD_AUTH_USER", "anthony")
@@ -155,7 +159,7 @@ def process_pdf_file(input_pdf_path):
                                 }
                                 for url in dashboard_urls:
                                     try:
-                                        r = requests.post(url, json=payload, headers=headers, timeout=10)
+                                        r = requests.post(url, json=payload, headers=headers, timeout=10, verify=False)
                                         if r.status_code == 200:
                                             print(f"Dashboard notified: {url}")
                                             break
@@ -176,7 +180,7 @@ def process_pdf_file(input_pdf_path):
                             try:
                                 urls_env = os.getenv(
                                     "DASHBOARD_URLS",
-                                    "http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send",
+                                    "https://192.168.0.62:9443/api/notifications/send,https://127.0.0.1:9443/api/notifications/send",
                                 )
                                 dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
                                 user = os.getenv("DASHBOARD_AUTH_USER", "anthony")
@@ -191,7 +195,7 @@ def process_pdf_file(input_pdf_path):
                                 }
                                 for url in dashboard_urls:
                                     try:
-                                        r = requests.post(url, json=payload, headers=headers, timeout=10)
+                                        r = requests.post(url, json=payload, headers=headers, timeout=10, verify=False)
                                         if r.status_code == 200:
                                             print(f"Dashboard notified: {url}")
                                             break

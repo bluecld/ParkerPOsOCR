@@ -226,4 +226,5 @@ class NotificationManager:
         return self.send_notification(title, full_message, None, "warning")
 
 # Global notification manager instance
-notification_manager = NotificationManager()
+# Use host path since we're running on the host system (port 9443)
+notification_manager = NotificationManager("/volume1/Main/Main/ParkerPOsOCR/dashboard/notification_config.json")

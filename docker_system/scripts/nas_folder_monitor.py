@@ -13,6 +13,10 @@ Features:
 import os
 import sys
 import time
+import urllib3
+
+# Suppress SSL certificate warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import logging
 import shutil
 import requests
@@ -52,7 +56,7 @@ class POProcessorHandler(FileSystemEventHandler):
             # Allow overriding dashboard URLs and auth via environment
             urls_env = os.getenv(
                 "DASHBOARD_URLS",
-                "http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send",
+                "https://192.168.0.62:9443/api/notifications/send,https://127.0.0.1:9443/api/notifications/send",
             )
             dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
 
@@ -66,7 +70,7 @@ class POProcessorHandler(FileSystemEventHandler):
             sent = False
             for url in dashboard_urls:
                 try:
-                    response = requests.post(url, json=payload, headers=headers, timeout=10)
+                    response = requests.post(url, json=payload, headers=headers, timeout=10, verify=False)
                     if response.status_code == 200:
                         logging.info(f"Dashboard notification sent via {url}: {title}")
                         sent = True

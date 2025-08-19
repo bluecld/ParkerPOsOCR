@@ -22,7 +22,7 @@ services:
       - FILEMAKER_PRINT_LAYOUT=Time Clock Reduced
       - FILEMAKER_USERNAME=JSON
       - FILEMAKER_PASSWORD=Windu63Purple!
-      - DASHBOARD_URLS=http://192.168.0.62:8443/api/notifications/send,http://127.0.0.1:8443/api/notifications/send
+      - DASHBOARD_URLS=https://192.168.0.62:9443/api/notifications/send,https://127.0.0.1:9443/api/notifications/send
       - DASHBOARD_AUTH_USER=anthony
       - DASHBOARD_AUTH_PASS=password
 

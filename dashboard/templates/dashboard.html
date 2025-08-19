@@ -1003,10 +1003,30 @@ https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK"></textarea>
 
         async function fetchData(endpoint) {
             try {
+                console.log(`Fetching data from: /api/${endpoint}`);
                 const response = await fetch(`/api/${endpoint}`);
-                return await response.json();
+                console.log(`Response status for ${endpoint}:`, response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log(`Data received for ${endpoint}:`, data);
+                return data;
             } catch (error) {
                 console.error(`Error fetching ${endpoint}:`, error);
+                
+                // Show error in UI for debugging
+                if (endpoint === 'completed') {
+                    document.getElementById('completedTable').innerHTML = 
+                        `<tr><td colspan="5" class="text-center text-danger">Error loading data: ${error.message}<br><small>Check browser console for details</small></td></tr>`;
+                }
+                if (endpoint === 'activity') {
+                    document.getElementById('activityLog').innerHTML = 
+                        `<div class="text-danger">Error loading activity: ${error.message}<br><small>Check browser console for details</small></div>`;
+                }
+                
                 return null;
             }
         }
@@ -1948,7 +1968,7 @@ https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK"></textarea>
         }
 
         function loadNotificationSettings() {
-            fetch('/api/notification-settings')
+            fetch('/api/notifications/config')
                 .then(response => response.json())
                 .then(config => {
                     document.getElementById('notificationSettingsContent').innerHTML = `
@@ -2036,7 +2056,7 @@ https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK"></textarea>
                 }
             };
 
-            fetch('/api/notification-settings', {
+            fetch('/api/notifications/config', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -2252,7 +2272,7 @@ https://hooks.zapier.com/hooks/catch/YOUR_WEBHOOK"></textarea>
 
         async function testNotifications() {
             try {
-                const response = await fetch('/api/test-notifications', {
+                const response = await fetch('/api/notifications/test', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

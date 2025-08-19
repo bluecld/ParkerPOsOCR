@@ -1,6 +1,6 @@
 {
   "email": {
-    "enabled": true,
+    "enabled": false,
     "smtp_server": "tekent.ipower.com",
     "smtp_port": 587,
     "username": "anthony@tekenterprisesinc.com",
