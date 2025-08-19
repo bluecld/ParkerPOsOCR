@@ -1,0 +1,17 @@
+#!/usr/bin/expect -f
+
+set timeout 30
+
+spawn ssh parker@192.168.0.105 "launchctl unload ~/Library/LaunchAgents/com.parkerpos.pdf.autoprint.plist && launchctl load ~/Library/LaunchAgents/com.parkerpos.pdf.autoprint.plist && echo 'LaunchAgent restarted successfully'"
+
+expect {
+    "Password:" {
+        send "Rynrin12\r"
+        exp_continue
+    }
+    "yes/no" {
+        send "yes\r"
+        exp_continue
+    }
+    eof
+}
