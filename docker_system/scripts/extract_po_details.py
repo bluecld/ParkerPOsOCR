@@ -145,10 +145,11 @@ def validate_part_number_with_reference(ocr_part_number):
     return ocr_part_number, 0.3, f"No match found in reference database"
 
 def extract_text_from_pdf(pdf_path):
-    """Extract all text from PDF using OCR with better accuracy"""
+    """Extract all text from PDF using OCR with better accuracy - processes ALL pages in the PDF"""
     doc = fitz.open(pdf_path)
     all_text = ""
     
+    # Process EVERY page in the PDF (this already scanned all pages)
     for page_num in range(len(doc)):
         page = doc[page_num]
         
@@ -208,7 +209,7 @@ def extract_text_from_pdf(pdf_path):
     return all_text
 
 def extract_production_order(text):
-    """Extract production order number - flexible pattern matching"""
+    """Extract production order number - flexible pattern matching from comprehensive text"""
     # Multiple patterns to try, in order of preference
     patterns = [
         r'12\d{7}',           # Parker format: 12 followed by 7 digits (125157207)
@@ -219,6 +220,7 @@ def extract_production_order(text):
         r'WO[:\s]+(\d{8,10})'  # "WO: NNNNNN" (Work Order)
     ]
     
+    # Search through all sections of the comprehensive text
     for pattern in patterns:
         matches = re.findall(pattern, text, re.IGNORECASE)
         if matches:
@@ -246,18 +248,19 @@ def extract_revision(text):
     return None
 
 def extract_part_number(text, production_order):
-    """Extract part number near the Production Order, supporting alpha+numeric formats (e.g., WA904-8)."""
+    """Extract part number from comprehensive text (PO pages + first router page)"""
     if not production_order:
         return None
     
     lines = text.split('\n')
     
     # Look for production order and then search nearby lines for part number
+    # Enhanced to work with comprehensive text from multiple sections
     for i, line in enumerate(lines):
         if production_order in line:
             # Search in a wider context around the production order
-            start_idx = max(0, i-10)
-            end_idx = min(len(lines), i+5)
+            start_idx = max(0, i-15)  # Increased search range for comprehensive text
+            end_idx = min(len(lines), i+10)
             context_lines = lines[start_idx:end_idx]
             
             # Pattern 1: Support both digit-digit (157710-30) and alpha+digits with optional dash (WA904-8)
@@ -1012,6 +1015,75 @@ def extract_quality_clauses(text):
     
     return quality_clauses if quality_clauses else None
 
+def extract_text_from_first_router_page(pdf_path):
+    """Extract text from only the first page of the router PDF"""
+    if not os.path.exists(pdf_path):
+        return ""
+    
+    doc = fitz.open(pdf_path)
+    if len(doc) == 0:
+        doc.close()
+        return ""
+    
+    # Get only first page (page 0)
+    page = doc[0]
+    
+    # Try to extract text directly first
+    page_text = page.get_text()
+    
+    # If no text found or minimal text, use OCR
+    if len(page_text.strip()) < 50:
+        try:
+            # Use adaptive resolution for first router page
+            matrices = [
+                fitz.Matrix(3, 3),  # Standard high res
+                fitz.Matrix(2, 2),  # Lower res for already high-quality scans
+                fitz.Matrix(4, 4)   # Higher res for difficult scans
+            ]
+            
+            best_text = ""
+            best_length = 0
+            
+            for matrix in matrices:
+                try:
+                    pix = page.get_pixmap(matrix=matrix)
+                    img_data = pix.tobytes("png")
+                    img = Image.open(io.BytesIO(img_data)).convert('L')
+                    
+                    # Enhanced OCR configs for router pages
+                    configs = [
+                        r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-*().,: ',
+                        r'--oem 3 --psm 4',
+                        r'--oem 3 --psm 3',
+                        r'--oem 1 --psm 6',
+                        r'--oem 2 --psm 6'
+                    ]
+                    
+                    for config in configs:
+                        try:
+                            ocr_text = pytesseract.image_to_string(img, config=config)
+                            if len(ocr_text) > best_length:
+                                best_text = ocr_text
+                                best_length = len(ocr_text)
+                        except:
+                            continue
+                    
+                    # If we got decent results, don't try more matrices
+                    if best_length > 100:
+                        break
+                        
+                except Exception as e:
+                    print(f"OCR matrix {matrix} failed for router page: {e}")
+                    continue
+            
+            page_text = best_text if best_text else page_text
+            
+        except Exception as e:
+            print(f"Error processing first router page: {e}")
+    
+    doc.close()
+    return f"FIRST ROUTER PAGE:\n{page_text}\n\n"
+
 def main():
     # Find the most recent PO folder (starts with 455)
     po_folders = [d for d in os.listdir('.') if os.path.isdir(d) and d.startswith('455')]
@@ -1023,14 +1095,24 @@ def main():
     po_folder = max(po_folders, key=lambda d: os.path.getmtime(d))
     po_number = po_folder
     po_file = os.path.join(po_folder, f"PO_{po_number}.pdf")
+    router_file = os.path.join(po_folder, f"Router_{po_number}.pdf")
     json_file = os.path.join(po_folder, f"{po_number}_info.json")
     
     if not os.path.exists(po_file):
         print(f"PO file not found: {po_file}")
         return
     
-    print("Extracting detailed text from PO file...")
+    print("Extracting detailed text from ALL PO pages...")
     text = extract_text_from_pdf(po_file)
+    
+    # ENHANCEMENT: Also extract text from first page of router section
+    if os.path.exists(router_file):
+        print("Extracting text from first router page for additional information...")
+        router_text = extract_text_from_first_router_page(router_file)
+        text += router_text  # Combine PO text with first router page text
+        print("Combined PO text with first router page text for comprehensive extraction")
+    else:
+        print("No router file found - processing only PO pages")
     
     print("\\nExtracting Production Order...")
     production_order = extract_production_order(text)
@@ -1099,11 +1181,14 @@ def main():
     print("\\nExtracted information:")
     print(json.dumps(po_info, indent=2))
     
-    # Also save extracted text for debugging
-    debug_file = os.path.join(po_folder, "extracted_text.txt")
+    # Also save extracted text for debugging (now includes router first page if available)
+    debug_file = os.path.join(po_folder, "extracted_text_comprehensive.txt")
     with open(debug_file, 'w', encoding='utf-8') as f:
+        f.write("=== COMPREHENSIVE TEXT EXTRACTION ===\n")
+        f.write("This includes ALL PO pages AND first router page (if available)\n")
+        f.write("=" * 60 + "\n\n")
         f.write(text)
-    print(f"\\nSaved extracted text to: {debug_file}")
+    print(f"\\nSaved comprehensive extracted text to: {debug_file}")
     
     # Move original searchable PDF to PO folder for complete organization
     original_pdf = po_info.get("source_file", "final_searchable_output.pdf")
