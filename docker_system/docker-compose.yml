@@ -5,6 +5,12 @@ services:
     container_name: po-processor
     network_mode: host
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/app/nas_folder_monitor.py') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     volumes:
       - /volume1/Main/Main/ParkerPOsOCR/Scans:/app/input
       - /volume1/Main/Main/ParkerPOsOCR/POs:/app/processed
