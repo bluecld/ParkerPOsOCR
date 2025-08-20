@@ -7,6 +7,9 @@ watchdog==3.0.0
 # Add OpenCV for PDF OCR
 opencv-python
 
+# Excel file reading for part number validation
+openpyxl==3.1.2
+
 # FileMaker integration (for Phase 1b)
 requests==2.31.0
 python-dotenv==1.0.0

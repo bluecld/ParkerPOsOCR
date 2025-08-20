@@ -25,8 +25,16 @@ def load_part_numbers_for_validation():
         return _PART_NUMBERS_CACHE, _PART_TO_FULL_CACHE
         
     try:
-        import pandas as pd
-        excel_path = "/volume1/Main/Main/ParkerPOsOCR/docs/PartNumbers.xlsx"
+        # Try to import openpyxl for Excel reading
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            print("Info: openpyxl not available, part number validation disabled")
+            _PART_NUMBERS_CACHE = set()
+            _PART_TO_FULL_CACHE = {}
+            return _PART_NUMBERS_CACHE, _PART_TO_FULL_CACHE
+            
+        excel_path = "/app/docs/PartNumbers.xlsx"
         
         if not os.path.exists(excel_path):
             print(f"Warning: Part numbers file not found at {excel_path}")
@@ -34,23 +42,29 @@ def load_part_numbers_for_validation():
             _PART_TO_FULL_CACHE = {}
             return _PART_NUMBERS_CACHE, _PART_TO_FULL_CACHE
             
-        df = pd.read_excel(excel_path)
+        # Load Excel file with openpyxl
+        workbook = load_workbook(excel_path, read_only=True)
+        worksheet = workbook.active
+        
         part_numbers = set()
         part_to_full = {}
         
-        for _, row in df.iterrows():
-            full_part = str(row['Part Number']).strip()
-            if '*' in full_part:
-                clean_part = full_part.split('*')[0].upper().strip()
-            else:
-                clean_part = full_part.upper().strip()
-            
-            part_numbers.add(clean_part)
-            part_to_full[clean_part] = full_part
-            
+        # Assume first row is headers, start from row 2
+        for row in worksheet.iter_rows(min_row=2, values_only=True):
+            if row and row[0]:  # Check if first column (Part Number) has data
+                full_part = str(row[0]).strip()
+                if '*' in full_part:
+                    clean_part = full_part.split('*')[0].upper().strip()
+                else:
+                    clean_part = full_part.upper().strip()
+                
+                part_numbers.add(clean_part)
+                part_to_full[clean_part] = full_part
+        
+        workbook.close()
         _PART_NUMBERS_CACHE = part_numbers
         _PART_TO_FULL_CACHE = part_to_full
-        print(f"Loaded {len(part_numbers)} part numbers for validation")
+        print(f"Loaded {len(part_numbers)} part numbers for validation from Excel")
         
     except Exception as e:
         print(f"Warning: Could not load part numbers for validation: {e}")
@@ -273,13 +287,21 @@ def extract_part_number(text, production_order):
                     op_part = dash_pattern_match.group(3).upper()
                     raw_part = f"{part_base}*{op_part}"
                     
-                    # Validate and correct the part number using reference database
+                    # Use database validation first (includes OCR corrections)
                     validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
-                    if confidence > 0.8:  # High confidence correction
+                    if confidence > 0.8:  # High confidence correction from database
                         print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
                         return validated_part
-                    else:
-                        return raw_part
+                    
+                    # Fallback to simple OCR corrections if database validation failed
+                    corrected_candidates = fix_common_ocr_errors(part_base)
+                    if corrected_candidates and len(corrected_candidates) > 1:
+                        # Use the first corrected candidate (after the original)
+                        corrected_part = f"{corrected_candidates[1]}*{op_part}"
+                        print(f"OCR correction applied: {raw_part} → {corrected_part}")
+                        return corrected_part
+                    
+                    return raw_part
                 
                 # Look for a part pattern that might have OP on next line or nearby
                 dash_match = re.search(r'(\d+[-_]\d+|[A-Z]{1,4}\d{2,6}(?:[-_]\d{1,3})?)', context_line, re.IGNORECASE)
@@ -295,13 +317,21 @@ def extract_part_number(text, production_order):
                                 op_part = op_match.group(1).upper()
                                 raw_part = f"{part_base}*{op_part}"
                                 
-                                # Validate and correct the part number
+                                # Use database validation first (includes OCR corrections)
                                 validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
-                                if confidence > 0.8:  # High confidence correction
+                                if confidence > 0.8:  # High confidence correction from database
                                     print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
                                     return validated_part
-                                else:
-                                    return raw_part
+                                
+                                # Fallback to simple OCR corrections if database validation failed
+                                corrected_candidates = fix_common_ocr_errors(part_base)
+                                if corrected_candidates and len(corrected_candidates) > 1:
+                                    # Use the first corrected candidate (after the original)
+                                    corrected_part = f"{corrected_candidates[1]}*{op_part}"
+                                    print(f"OCR correction applied: {raw_part} → {corrected_part}")
+                                    return corrected_part
+                                
+                                return raw_part
                     
                     # If no OP found, also search in the broader context around this part number
                     context_text = ' '.join(context_lines[max(0, j-3):min(len(context_lines), j+8)])
@@ -310,13 +340,21 @@ def extract_part_number(text, production_order):
                         op_part = op_match.group(1).upper()
                         raw_part = f"{part_base}*{op_part}"
                         
-                        # Validate and correct the part number
+                        # Use database validation first (includes OCR corrections)
                         validated_part, confidence, correction_info = validate_part_number_with_reference(raw_part)
-                        if confidence > 0.8:  # High confidence correction
+                        if confidence > 0.8:  # High confidence correction from database
                             print(f"Part number validation: {raw_part} → {validated_part} ({correction_info})")
                             return validated_part
-                        else:
-                            return raw_part
+                        
+                        # Fallback to simple OCR corrections if database validation failed
+                        corrected_candidates = fix_common_ocr_errors(part_base)
+                        if corrected_candidates and len(corrected_candidates) > 1:
+                            # Use the first corrected candidate (after the original)
+                            corrected_part = f"{corrected_candidates[1]}*{op_part}"
+                            print(f"OCR correction applied: {raw_part} → {corrected_part}")
+                            return corrected_part
+                        
+                        return raw_part
                     
                     # Store this as a candidate in case we don't find anything better
                     candidate_part = part_base

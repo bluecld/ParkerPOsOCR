@@ -16,6 +16,7 @@ services:
       - /volume1/Main/Main/ParkerPOsOCR/POs:/app/processed
       - /volume1/Main/Main/ParkerPOsOCR/Archive:/app/archive
       - /volume1/Main/Main/ParkerPOsOCR/Errors:/app/errors
+      - /volume1/Main/Main/ParkerPOsOCR/docs:/app/docs
       - ./logs:/app/logs
     environment:
       - TZ=America/Los_Angeles

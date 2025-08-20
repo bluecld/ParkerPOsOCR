@@ -542,14 +542,81 @@ def api_po_details(po_number):
         }
         
         # If there's a main JSON file, include its content at the top level
-        main_json = next((j for j in json_files if j["name"] == f"{po_number}.json"), None)
+        main_json = next((j for j in json_files if j["name"] == f"{po_number}_info.json"), None)
         if main_json and isinstance(main_json["content"], dict):
             po_details.update(main_json["content"])
         
         return po_details
-        
     except Exception as e:
         return {"error": str(e)}, 500
+
+@app.route('/test/po/<po_number>')
+def test_po_details(po_number):
+    """TEST endpoint for PO details (no authentication required)"""
+    try:
+        # Find all files related to this PO
+        po_folder = os.path.join(POS_PATH, po_number)
+        
+        if not os.path.exists(po_folder):
+            return {"error": f"PO {po_number} not found", "folder_checked": po_folder}, 404
+        
+        # Get all files in the PO folder
+        json_files = []
+        pdf_files = []
+        text_files = []
+        
+        for file in os.listdir(po_folder):
+            file_path = os.path.join(po_folder, file)
+            if file.endswith('.json'):
+                # Load JSON content
+                try:
+                    with open(file_path, 'r') as f:
+                        json_content = json.load(f)
+                    json_files.append({
+                        "name": file,
+                        "content": json_content,
+                        "size": os.path.getsize(file_path)
+                    })
+                except Exception as e:
+                    json_files.append({
+                        "name": file,
+                        "content": f"Error reading file: {str(e)}",
+                        "size": os.path.getsize(file_path)
+                    })
+            elif file.endswith('.pdf'):
+                pdf_files.append({
+                    "name": file,
+                    "size": os.path.getsize(file_path),
+                    "modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+                })
+            elif file.endswith('.txt'):
+                text_files.append({
+                    "name": file,
+                    "size": os.path.getsize(file_path),
+                    "modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+                })
+        
+        # If we have JSON data, also return the flattened data for easy access
+        po_json_data = {}
+        if json_files and json_files[0]["content"] != "Error reading file":
+            po_json_data = json_files[0]["content"]
+        
+        return {
+            "po_number": po_number,
+            "folder_path": po_folder,
+            "json_files": json_files,
+            "pdf_files": pdf_files,
+            "text_files": text_files,
+            "flattened_data": po_json_data,
+            "debug_info": {
+                "folder_exists": os.path.exists(po_folder),
+                "files_in_folder": os.listdir(po_folder) if os.path.exists(po_folder) else [],
+                "json_count": len(json_files),
+                "pdf_count": len(pdf_files)
+            }
+        }
+    except Exception as e:
+        return {"error": f"Server error: {str(e)}", "po_number": po_number}, 500
 
 @app.route('/api/po/<po_number>/download')
 @login_required
