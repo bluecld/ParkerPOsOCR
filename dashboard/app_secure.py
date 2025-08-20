@@ -53,7 +53,7 @@ SCANS_PATH = f"{BASE_PATH}/Scans"
 POS_PATH = f"{BASE_PATH}/POs"
 ARCHIVE_PATH = f"{BASE_PATH}/Archive"
 ERRORS_PATH = f"{BASE_PATH}/Errors"
-LOG_PATH = f"{BASE_PATH}/logs/po_processor.log"
+LOG_PATH = f"{BASE_PATH}/POs/po_processor.log"
 CONTAINER_NAME = "po-processor"
 
 # Security configuration
@@ -66,8 +66,9 @@ security_logger = logging.getLogger('security')
 security_handler = logging.FileHandler('/app/logs/security.log')
 security_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 security_handler.setFormatter(security_formatter)
+security_handler.setLevel(logging.DEBUG)  # Set handler level to DEBUG
 security_logger.addHandler(security_handler)
-security_logger.setLevel(logging.INFO)
+security_logger.setLevel(logging.DEBUG)
 
 # User class for Flask-Login
 class User(UserMixin):
@@ -198,24 +199,25 @@ def get_recent_activity():
                 lines = f.readlines()[-20:]  # Last 20 lines
             
             for line in lines:
-                if line.strip():
-                    # Parse log format: timestamp [level] message
-                    parts = line.strip().split(' ', 2)
+                if line.strip() and not line.startswith('#'):
+                    # Parse log format: 2025-08-19 15:47:11,509 - INFO - message
+                    parts = line.strip().split(' - ', 2)
                     if len(parts) >= 3:
-                        timestamp = parts[0] + ' ' + parts[1]
-                        level_part = parts[2]
-                        
-                        if level_part.startswith('[') and ']' in level_part:
-                            level = level_part.split(']')[0][1:]
-                            message = level_part.split(']', 1)[1].strip()
-                        else:
-                            level = "INFO"
-                            message = level_part
+                        timestamp = parts[0]
+                        level = parts[1]
+                        message = parts[2]
                         
                         activities.append({
                             "timestamp": timestamp,
                             "level": level,
                             "message": message
+                        })
+                    else:
+                        # Fallback for other formats
+                        activities.append({
+                            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            "level": "INFO",
+                            "message": line.strip()
                         })
         except Exception as e:
             activities.append({
@@ -608,6 +610,14 @@ def api_po_file(po_number, filename):
 @app.route('/api/notifications/send', methods=['POST'])
 def api_send_notification():
     """API endpoint to receive notifications from processing containers"""
+    # IMMEDIATE debug write to confirm function execution
+    try:
+        with open('/app/logs/function_debug.log', 'a') as f:
+            f.write(f"{datetime.now().isoformat()} - FUNCTION ENTRY: api_send_notification called\n")
+            f.flush()
+    except:
+        pass
+    
     try:
         data = request.get_json()
         if not data:
@@ -621,6 +631,60 @@ def api_send_notification():
         
         # Log to security logger
         security_logger.info(f"Notification received: {title} - {message} (PO: {po_number}, Type: {notification_type})")
+        
+        # IMMEDIATE debug after logging
+        try:
+            with open('/app/logs/function_debug.log', 'a') as f:
+                f.write(f"{datetime.now().isoformat()} - AFTER SECURITY LOG: {title}\n")
+                f.flush()
+        except:
+            pass
+        
+        # Also write to the processor log file so Recent Activity can display it
+        import sys
+        print(f"[DEBUG PRINT] Starting log file write process", flush=True)
+        sys.stdout.flush()
+        print(f"[DEBUG PRINT] LOG_PATH: {LOG_PATH}", flush=True)
+        sys.stdout.flush()
+        try:
+            # Write debug info to separate file to track execution
+            with open('/app/logs/notification_debug.log', 'a') as debug_file:
+                debug_file.write(f"{datetime.now().isoformat()} - NOTIFICATION DEBUG: Starting write process for {title}\n")
+                debug_file.flush()
+            
+            log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]} - INFO - {title}: {message}"
+            print(f"[DEBUG PRINT] Created log entry: {log_entry}", flush=True)
+            sys.stdout.flush()
+            security_logger.debug(f"Attempting to write to LOG_PATH: {LOG_PATH}")
+            security_logger.debug(f"Log entry: {log_entry}")
+            print(f"[DEBUG PRINT] Opening log file for writing", flush=True)
+            sys.stdout.flush()
+            
+            # Debug file write before main operation
+            with open('/app/logs/notification_debug.log', 'a') as debug_file:
+                debug_file.write(f"{datetime.now().isoformat()} - About to write to processor log: {log_entry}\n")
+                debug_file.flush()
+            
+            with open(LOG_PATH, 'a') as log_file:
+                log_file.write(log_entry + '\n')
+                log_file.flush()  # Force flush to ensure write
+            print(f"[DEBUG PRINT] Successfully wrote to log file", flush=True)
+            sys.stdout.flush()
+            security_logger.debug(f"Successfully wrote notification to processor log")
+            
+            # Debug file write after successful operation
+            with open('/app/logs/notification_debug.log', 'a') as debug_file:
+                debug_file.write(f"{datetime.now().isoformat()} - SUCCESS: Wrote to processor log\n")
+                debug_file.flush()
+                
+        except Exception as log_err:
+            # Write exception to debug file
+            with open('/app/logs/notification_debug.log', 'a') as debug_file:
+                debug_file.write(f"{datetime.now().isoformat()} - ERROR: {str(log_err)}\n")
+                debug_file.flush()
+            print(f"[DEBUG PRINT] ERROR writing to log file: {log_err}", flush=True)
+            sys.stdout.flush()
+            security_logger.error(f"Failed to write notification to log file: {log_err}")
         
         # Dispatch via notification manager
         try:
@@ -1217,7 +1281,7 @@ if __name__ == '__main__':
     if use_https and ssl_cert and ssl_key and os.path.exists(ssl_cert) and os.path.exists(ssl_key):
         try:
             print("🔒 Starting secure dashboard with HTTPS...")
-            print(f"🔗 Access at: https://192.168.0.62:8443")
+            print(f"🔗 Access at: https://192.168.0.62:9443")
             print("⚠️  Browser will show security warning (normal for self-signed certificates)")
             print("   Click 'Advanced' → 'Proceed to 192.168.0.62 (unsafe)' to continue")
             print("")
@@ -1225,16 +1289,16 @@ if __name__ == '__main__':
             print(f"Debug: SSL key path: {ssl_key}")
             print(f"Debug: Certificate exists: {os.path.exists(ssl_cert)}")
             print(f"Debug: Key exists: {os.path.exists(ssl_key)}")
-            app.run(host='0.0.0.0', port=8443, ssl_context=(ssl_cert, ssl_key), debug=app.config['DEBUG'])
+            app.run(host='0.0.0.0', port=9443, ssl_context=(ssl_cert, ssl_key), debug=app.config['DEBUG'])
         except Exception as e:
             print(f"❌ HTTPS startup failed: {e}")
             print("🔄 Falling back to HTTP mode...")
-            print(f"🔗 Access at: http://192.168.0.62:8443")
-            app.run(host='0.0.0.0', port=8443, debug=app.config['DEBUG'])
+            print(f"🔗 Access at: http://192.168.0.62:9443")
+            app.run(host='0.0.0.0', port=9443, debug=app.config['DEBUG'])
     else:
         if use_https:
             print("⚠️  HTTPS enabled but SSL certificates not found. Starting in HTTP mode.")
         print("🔓 Starting dashboard in HTTP mode...")
-        print(f"🔗 Access at: http://192.168.0.62:8443")
+        print(f"🔗 Access at: http://192.168.0.62:9443")
         print("⚠️  Warning: HTTP mode is not secure for internet exposure!")
-        app.run(host='0.0.0.0', port=8443, debug=app.config['DEBUG'])
+        app.run(host='0.0.0.0', port=9443, debug=app.config['DEBUG'])

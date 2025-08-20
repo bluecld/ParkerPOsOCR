@@ -933,15 +933,15 @@ def extract_dpas_ratings(text):
             for j in range(i + 1, min(i + 3, len(lines))):
                 search_text += ' ' + lines[j]
             
-            # Look for DOA and DOC patterns followed by numbers
-            ratings = re.findall(r'(DO[AC]\d+)', search_text.upper())
+            # Look for DPAS patterns: DOA, DOC, DXA followed by numbers (4 characters total)
+            ratings = re.findall(r'(D[OX][AC]\d+)', search_text.upper())
             dpas_ratings.extend(ratings)
             break
     
     # If not found in structured way, search more broadly
     if not dpas_ratings:
-        # Look for DOA/DOC patterns anywhere in text
-        all_ratings = re.findall(r'(DO[AC]\d+)', text.upper())
+        # Look for DOA/DOC/DXA patterns anywhere in text (4 characters total)
+        all_ratings = re.findall(r'(D[OX][AC]\d+)', text.upper())
         dpas_ratings.extend(all_ratings)
     
     # Remove duplicates while preserving order
@@ -955,23 +955,38 @@ def extract_dpas_ratings(text):
     return unique_ratings if unique_ratings else None
 
 def extract_quality_clauses(text):
-    """Extract Quality Clauses (Q numbers with descriptions) from the document"""
+    """Extract Quality Clauses (Q numbers with descriptions) from the document with enhanced classification"""
     quality_clauses = {}
     
-    # Define known quality clauses and their complete descriptions based on the text
-    known_clauses = {
-        'Q1': 'QUALITY SYSTEMS REQUIREMENTS',
-        'Q2': 'SURVEILLANCE BY MEGGITT AND RIGHT OF ENTRY',
-        'Q5': 'CERTIFICATION OF CONFORMANCE AND RECORD RETENTION',
-        'Q9': 'CORRECTIVE ACTION',
-        'Q11': 'SPECIAL PROCESS SOURCES REQUIRED',
-        'Q13': 'REPORT OF DISCREPANCY # Quality Notification (QN)',
-        'Q14': 'FOREIGN OBJECT DAMAGE (FOD)',
-        'Q15': 'ANTI-TERRORIST POLICY',
-        'Q26': 'PACKING FOR SHIPMENT',
-        'Q32': 'FLOWDOWN OF REQUIREMENTS [QUALITY AND ENVIRONMENTAL]',
-        'Q33': 'FAR and DOD FAR SUPPLEMENTAL FLOWDOWN PROVISIONS'
+    # Define Q clause business classification
+    q_clause_classification = {
+        # Auto-accept - Standard clauses that don't affect timesheet pricing
+        "auto_accept": {
+            "Q1": {"description": "QUALITY SYSTEMS REQUIREMENTS", "timesheet_impact": False, "action": "ACCEPT", "notes": "Standard quality compliance"},
+            "Q5": {"description": "CERTIFICATION OF CONFORMANCE AND RECORD RETENTION", "timesheet_impact": False, "action": "ACCEPT", "notes": "Standard COC"},
+            "Q26": {"description": "PACKING FOR SHIPMENT", "timesheet_impact": False, "action": "ACCEPT", "notes": "Standard packing"}
+        },
+        # Review required - May affect timesheet/pricing  
+        "review_required": {
+            "Q2": {"description": "SURVEILLANCE BY MEGGITT AND RIGHT OF ENTRY", "timesheet_impact": True, "action": "REVIEW", "notes": "Customer access required", "alert_level": "MEDIUM"},
+            "Q9": {"description": "CORRECTIVE ACTION", "timesheet_impact": True, "action": "REVIEW", "notes": "CA documentation required", "alert_level": "MEDIUM"},
+            "Q11": {"description": "SPECIAL PROCESS SOURCES REQUIRED", "timesheet_impact": True, "action": "REVIEW", "notes": "Verify certifications", "alert_level": "HIGH"},
+            "Q13": {"description": "REPORT OF DISCREPANCY # Quality Notification (QN)", "timesheet_impact": True, "action": "REVIEW", "notes": "QN reporting required", "alert_level": "HIGH"},
+            "Q14": {"description": "FOREIGN OBJECT DAMAGE (FOD)", "timesheet_impact": True, "action": "REVIEW", "notes": "FOD prevention measures", "alert_level": "MEDIUM"}
+        },
+        # Object to - Typically reject or negotiate
+        "object_to": {
+            "Q15": {"description": "ANTI-TERRORIST POLICY", "timesheet_impact": False, "action": "OBJECT", "notes": "Standard objection", "alert_level": "HIGH"},
+            "Q32": {"description": "FLOWDOWN OF REQUIREMENTS [QUALITY AND ENVIRONMENTAL]", "timesheet_impact": False, "action": "OBJECT", "notes": "Flowdown too broad", "alert_level": "HIGH"},
+            "Q33": {"description": "FAR and DOD FAR SUPPLEMENTAL FLOWDOWN PROVISIONS", "timesheet_impact": False, "action": "OBJECT", "notes": "FAR inappropriate for commercial", "alert_level": "CRITICAL"}
+        }
     }
+    
+    # Flatten classification for description lookup
+    known_clauses = {}
+    for category, clauses in q_clause_classification.items():
+        for q_number, info in clauses.items():
+            known_clauses[q_number] = info["description"]
     
     # Extract Q numbers that actually appear in the text
     q_numbers_found = re.findall(r'(Q\d+)', text.upper())
@@ -1013,7 +1028,94 @@ def extract_quality_clauses(text):
                         quality_clauses[q_number] = ' '.join(description_parts).strip()
                     break
     
-    return quality_clauses if quality_clauses else None
+    # Classify the Q clauses for business processing
+    q_clause_analysis = classify_q_clauses_for_business(quality_clauses, q_clause_classification)
+    
+    # Return the complete analysis structure expected by main()
+    return {
+        'raw_clauses': list(quality_clauses.keys()),
+        'quality_clauses_dict': quality_clauses,
+        'classified_clauses': q_clause_analysis,  # Pass the entire analysis result
+        'summary': q_clause_analysis.get('summary', {}),
+        'overall_status': q_clause_analysis.get('action_required', False)  # Use action_required as status
+    }
+
+def classify_q_clauses_for_business(quality_clauses_dict, classification):
+    """Classify Q clauses into business categories for FileMaker integration"""
+    if not quality_clauses_dict:
+        return {
+            "total_clauses": 0,
+            "accept_clauses": [],
+            "review_clauses": [], 
+            "object_clauses": [],
+            "unknown_clauses": [],
+            "timesheet_impact": "NONE",
+            "action_required": False,
+            "summary": "No Q clauses found"
+        }
+    
+    result = {
+        "total_clauses": len(quality_clauses_dict),
+        "accept_clauses": [],
+        "review_clauses": [],
+        "object_clauses": [], 
+        "unknown_clauses": [],
+        "timesheet_impact": "NONE",
+        "action_required": False,
+        "summary": ""
+    }
+    
+    # Classify each Q clause
+    for q_number, description in quality_clauses_dict.items():
+        clause_data = {"number": q_number, "description": description}
+        
+        # Find in classification
+        found = False
+        for category, clauses in classification.items():
+            if q_number in clauses:
+                clause_info = clauses[q_number]
+                clause_data.update(clause_info)
+                
+                if category == "auto_accept":
+                    result["accept_clauses"].append(clause_data)
+                elif category == "review_required":
+                    result["review_clauses"].append(clause_data)
+                    if clause_info.get("timesheet_impact"):
+                        result["timesheet_impact"] = "MEDIUM" if result["timesheet_impact"] == "NONE" else "HIGH"
+                elif category == "object_to":
+                    result["object_clauses"].append(clause_data)
+                    result["action_required"] = True
+                
+                found = True
+                break
+        
+        if not found:
+            result["unknown_clauses"].append(clause_data)
+            result["action_required"] = True
+            result["timesheet_impact"] = "HIGH"
+    
+    # Determine overall timesheet impact
+    if result["review_clauses"] or result["unknown_clauses"]:
+        if any(c.get("alert_level") == "HIGH" for c in result["review_clauses"]):
+            result["timesheet_impact"] = "HIGH"
+        elif any(c.get("alert_level") == "MEDIUM" for c in result["review_clauses"]):
+            if result["timesheet_impact"] == "NONE":
+                result["timesheet_impact"] = "MEDIUM"
+    
+    # Generate summary
+    summary_parts = []
+    if result["accept_clauses"]:
+        summary_parts.append(f"{len(result['accept_clauses'])} auto-accept")
+    if result["review_clauses"]:
+        summary_parts.append(f"{len(result['review_clauses'])} need review")
+    if result["object_clauses"]:
+        summary_parts.append(f"{len(result['object_clauses'])} to object")
+    if result["unknown_clauses"]:
+        summary_parts.append(f"{len(result['unknown_clauses'])} unknown")
+    
+    result["summary"] = "; ".join(summary_parts) if summary_parts else "No clauses"
+    
+    return result
 
 def extract_text_from_first_router_page(pdf_path):
     """Extract text from only the first page of the router PDF"""
@@ -1150,14 +1252,16 @@ def main():
     print(f"DPAS Ratings: {dpas_ratings}")
     
     print("\\nExtracting Quality Clauses...")
-    quality_clauses = extract_quality_clauses(text)
-    print(f"Quality Clauses: {quality_clauses}")
+    quality_clauses_analysis = extract_quality_clauses(text)
+    quality_clauses = quality_clauses_analysis.get('quality_clauses_dict', {})
+    print(f"Quality Clauses Found: {len(quality_clauses)} clauses")
+    print(f"Classification Summary: {quality_clauses_analysis.get('summary', {})}")
     
     # Load existing JSON
     with open(json_file, 'r') as f:
         po_info = json.load(f)
     
-    # Add new information
+    # Add new information including enhanced Q clause analysis
     po_info.update({
         "production_order": production_order,
         "revision": revision,
@@ -1170,7 +1274,8 @@ def main():
         "vendor_non_tek_flag": vendor_flag,
         "buyer_name": buyer_name,
         "dpas_ratings": dpas_ratings,
-        "quality_clauses": quality_clauses
+        "quality_clauses": quality_clauses,
+        "quality_clauses_analysis": quality_clauses_analysis
     })
     
     # Save updated JSON

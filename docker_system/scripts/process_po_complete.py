@@ -144,7 +144,7 @@ def process_pdf_file(input_pdf_path):
                             try:
                                 urls_env = os.getenv(
                                     "DASHBOARD_URLS",
-                                    "https://192.168.0.62:9443/api/notifications/send,https://127.0.0.1:9443/api/notifications/send",
+                                    "http://192.168.0.62:9443/api/notifications/send,http://127.0.0.1:9443/api/notifications/send",
                                 )
                                 dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
                                 user = os.getenv("DASHBOARD_AUTH_USER", "anthony")
@@ -180,7 +180,7 @@ def process_pdf_file(input_pdf_path):
                             try:
                                 urls_env = os.getenv(
                                     "DASHBOARD_URLS",
-                                    "https://192.168.0.62:9443/api/notifications/send,https://127.0.0.1:9443/api/notifications/send",
+                                    "http://192.168.0.62:9443/api/notifications/send,http://127.0.0.1:9443/api/notifications/send",
                                 )
                                 dashboard_urls = [u.strip() for u in urls_env.split(",") if u.strip()]
                                 user = os.getenv("DASHBOARD_AUTH_USER", "anthony")

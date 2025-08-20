@@ -114,6 +114,52 @@ class FileMakerIntegration:
         self.last_record_id = None
 
         planner_name = self._map_planner(po_info.get("buyer_name"))
+        
+        # Format DPAS ratings for FileMaker value list
+        dpas_ratings_raw = po_info.get("dpas_ratings", [])
+        dpas_ratings_formatted = ""
+        if dpas_ratings_raw and isinstance(dpas_ratings_raw, list):
+            # Convert to comma-separated string for FileMaker value list
+            dpas_ratings_formatted = ", ".join(dpas_ratings_raw)
+        
+        # Format Q clause analysis for FileMaker (following recommended Option 2 structure)
+        quality_clauses_analysis = po_info.get("quality_clauses_analysis", {})
+        q_clauses_accept = ""
+        q_clauses_review = ""
+        q_clauses_object = ""
+        q_status = "Not Reviewed"
+        timesheet_impact = "No"
+        
+        if quality_clauses_analysis:
+            # Extract classified clauses
+            classified = quality_clauses_analysis.get("classified_clauses", {})
+            
+            # Auto-accept clauses (standard compliance)
+            auto_accept = classified.get("auto_accept", [])
+            if auto_accept:
+                q_clauses_accept = ", ".join([c.get("clause_id", "") for c in auto_accept if c.get("clause_id")])
+            
+            # Review required clauses (timesheet impact)
+            review_required = classified.get("review_required", [])
+            if review_required:
+                q_clauses_review = ", ".join([c.get("clause_id", "") for c in review_required if c.get("clause_id")])
+                timesheet_impact = "Yes"  # Any review required clauses indicate timesheet impact
+            
+            # Object to clauses (non-compliance)
+            object_to = classified.get("object_to", [])
+            if object_to:
+                q_clauses_object = ", ".join([c.get("clause_id", "") for c in object_to if c.get("clause_id")])
+            
+            # Overall status based on classification
+            total_clauses = len(auto_accept) + len(review_required) + len(object_to)
+            if total_clauses > 0:
+                if object_to:
+                    q_status = "Objection Required"
+                elif review_required:
+                    q_status = "Review Required"
+                else:
+                    q_status = "Auto Accept"
+        
         preinventory_data = {
             "fieldData": {
                 "Whittaker Shipper #": str(po_info.get("purchase_order_number", "")),
@@ -124,6 +170,14 @@ class FileMakerIntegration:
                 "Planner Name": planner_name,
                 # Map dock_date to Promise Delivery Date in FileMaker (layout field name)
                 "Promise Delivery Date": str(po_info.get("dock_date", "")) if po_info.get("dock_date") else "",
+                # Map DPAS ratings to FileMaker value list field
+                "DPAS Rating": dpas_ratings_formatted,
+                # Q Clause fields will be added when FileMaker layout is updated
+                # "Q_Clauses_Accept": q_clauses_accept,
+                # "Q_Clauses_Review": q_clauses_review,
+                # "Q_Clauses_Object": q_clauses_object,
+                # "Q_Clauses_Status": q_status,
+                # "Q_Timesheet_Impact": timesheet_impact,
             }
         }
 
@@ -206,6 +260,52 @@ class FileMakerIntegration:
                             po_number_local = po_info.get('purchase_order_number', 'Unknown')
                             # Prepare full non-container field update aligned with layout
                             planner_name_local = self._map_planner(po_info.get("buyer_name"))
+                            
+                            # Format DPAS ratings for FileMaker value list (in safe retry)
+                            dpas_ratings_raw_local = po_info.get("dpas_ratings", [])
+                            dpas_ratings_formatted_local = ""
+                            if dpas_ratings_raw_local and isinstance(dpas_ratings_raw_local, list):
+                                # Convert to comma-separated string for FileMaker value list
+                                dpas_ratings_formatted_local = ", ".join(dpas_ratings_raw_local)
+                            
+                            # Format Q clause analysis for FileMaker (safe retry)
+                            quality_clauses_analysis_local = po_info.get("quality_clauses_analysis", {})
+                            q_clauses_accept_local = ""
+                            q_clauses_review_local = ""
+                            q_clauses_object_local = ""
+                            q_status_local = "Not Reviewed"
+                            timesheet_impact_local = "No"
+                            
+                            if quality_clauses_analysis_local:
+                                # Extract classified clauses
+                                classified_local = quality_clauses_analysis_local.get("classified_clauses", {})
+                                
+                                # Auto-accept clauses (standard compliance)
+                                auto_accept_local = classified_local.get("auto_accept", [])
+                                if auto_accept_local:
+                                    q_clauses_accept_local = ", ".join([c.get("clause_id", "") for c in auto_accept_local if c.get("clause_id")])
+                                
+                                # Review required clauses (timesheet impact)
+                                review_required_local = classified_local.get("review_required", [])
+                                if review_required_local:
+                                    q_clauses_review_local = ", ".join([c.get("clause_id", "") for c in review_required_local if c.get("clause_id")])
+                                    timesheet_impact_local = "Yes"  # Any review required clauses indicate timesheet impact
+                                
+                                # Object to clauses (non-compliance)
+                                object_to_local = classified_local.get("object_to", [])
+                                if object_to_local:
+                                    q_clauses_object_local = ", ".join([c.get("clause_id", "") for c in object_to_local if c.get("clause_id")])
+                                
+                                # Overall status based on classification
+                                total_clauses_local = len(auto_accept_local) + len(review_required_local) + len(object_to_local)
+                                if total_clauses_local > 0:
+                                    if object_to_local:
+                                        q_status_local = "Objection Required"
+                                    elif review_required_local:
+                                        q_status_local = "Review Required"
+                                    else:
+                                        q_status_local = "Auto Accept"
+                            
                             update_fields = {
                                 "Whittaker Shipper #": str(po_info.get("purchase_order_number", "")),
                                 "MJO NO": str(po_info.get("production_order", "")),
@@ -214,6 +314,14 @@ class FileMakerIntegration:
                                 "Revision": str(po_info.get("revision", "")),
                                 "Planner Name": planner_name_local or "Steven Huynh",
                                 "Promise Delivery Date": str(po_info.get("dock_date", "")) if po_info.get("dock_date") else "",
+                                # Include DPAS Rating in safe retry
+                                "DPAS Rating": dpas_ratings_formatted_local,
+                                # Q Clause fields will be added when FileMaker layout is updated
+                                # "Q_Clauses_Accept": q_clauses_accept_local,
+                                # "Q_Clauses_Review": q_clauses_review_local,
+                                # "Q_Clauses_Object": q_clauses_object_local,
+                                # "Q_Clauses_Status": q_status_local,
+                                # "Q_Timesheet_Impact": timesheet_impact_local,
                             }
                             # First update fields
                             upd_resp = requests.patch(edit_url, json={"fieldData": update_fields}, headers=headers, verify=False)

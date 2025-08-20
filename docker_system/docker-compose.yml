@@ -28,7 +28,7 @@ services:
       - FILEMAKER_PRINT_LAYOUT=Time Clock Reduced
       - FILEMAKER_USERNAME=JSON
       - FILEMAKER_PASSWORD=Windu63Purple!
-      - DASHBOARD_URLS=https://192.168.0.62:9443/api/notifications/send,https://127.0.0.1:9443/api/notifications/send
+      - DASHBOARD_URLS=http://192.168.0.62:9443/api/notifications/send,http://127.0.0.1:9443/api/notifications/send
       - DASHBOARD_AUTH_USER=anthony
       - DASHBOARD_AUTH_PASS=password
 
@@ -40,6 +40,11 @@ services:
     volumes:
       - /volume1/Main/Main/ParkerPOsOCR/dashboard/logs:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock
+      # Add volume mappings for PO processing directories
+      - /volume1/Main/Main/ParkerPOsOCR/Scans:/app/Scans
+      - /volume1/Main/Main/ParkerPOsOCR/POs:/app/POs
+      - /volume1/Main/Main/ParkerPOsOCR/Archive:/app/Archive
+      - /volume1/Main/Main/ParkerPOsOCR/Errors:/app/Errors
     environment:
       - TZ=America/Los_Angeles
       - PYTHONUNBUFFERED=1
