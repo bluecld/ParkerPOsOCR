@@ -1332,29 +1332,35 @@ def extract_router_validation_info(router_text):
                 break
         
         # Special handling for "Rev Lev" followed by value on next line (PRIORITY)
-        if 'Rev Lev' in line_clean and not result["router_doc_rev"]:
-            # Check next line for the revision value
-            if i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if re.match(r'^[A-Z0-9]+$', next_line) and len(next_line) <= 3:
-                    result["router_doc_rev"] = next_line
+        # Also handle OCR variations like "Rev Lev", "REV LEV", "RevLev", etc.
+        rev_lev_patterns = ['Rev Lev', 'REV LEV', 'RevLev', 'Rev_Lev', 'REVLEV', 'Rev Lav', 'Rev Lew', 'Rev Leu']
+        for pattern in rev_lev_patterns:
+            if pattern in line_clean and not result["router_doc_rev"]:
+                # Check next line for the revision value
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if re.match(r'^[A-Z0-9]+$', next_line) and len(next_line) <= 3:
+                        result["router_doc_rev"] = next_line
+                        break
         
         # Extract Doc Rev - look for revision information (LOWER PRIORITY)
         if not result["router_doc_rev"]:  # Only if not already found via "Rev Lev"
-            doc_rev_patterns = [
-                r'Doc\s*Rev\s*:?\s*([A-Z0-9]+)',
-                r'Document\s*Revision\s*:?\s*([A-Z0-9]+)',
-                r'Rev\s*:?\s*([A-Z0-9]+)',
-                r'Revision\s*:?\s*([A-Z0-9]+)',
-            ]
-            
-            for pattern in doc_rev_patterns:
-                match = re.search(pattern, line_clean, re.IGNORECASE)
-                if match:
-                    # Skip "Rev Lev" matches
-                    if 'Lev' not in match.group(1):
-                        result["router_doc_rev"] = match.group(1).strip()
-                        break
+            # Skip lines that contain "Drawing Rev" entirely
+            if 'Drawing' not in line_clean:
+                doc_rev_patterns = [
+                    r'Doc\s*Rev\s*:?\s*([A-Z0-9]+)',
+                    r'Document\s*Revision\s*:?\s*([A-Z0-9]+)',
+                    r'Rev\s*:?\s*([A-Z0-9]+)',
+                    r'Revision\s*:?\s*([A-Z0-9]+)',
+                ]
+                
+                for pattern in doc_rev_patterns:
+                    match = re.search(pattern, line_clean, re.IGNORECASE)
+                    if match:
+                        # Skip "Rev Lev" matches and other Rev Lev variations
+                        if not any(lev_var in line_clean for lev_var in ['Lev', 'LEV', 'Lav', 'Lew', 'Leu']):
+                            result["router_doc_rev"] = match.group(1).strip()
+                            break
         
         # Extract Order Number from table-style format
         # Handle "125157969            RELAY ASSY                              50 EA" pattern
@@ -1389,12 +1395,16 @@ def extract_router_validation_info(router_text):
                 break
                 
         # Special handling for "Proc Rev" followed by value on next line
-        if 'Proc Rev' in line_clean and not result["router_proc_rev"]:
-            # Check next line for the proc rev value
-            if i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if re.match(r'^[A-Z0-9]+$', next_line) and len(next_line) <= 5:
-                    result["router_proc_rev"] = next_line
+        # Also handle OCR variations like "Proc Rev", "PROC REV", "ProcRev", etc.
+        proc_rev_patterns_multiline = ['Proc Rev', 'PROC REV', 'ProcRev', 'Proc_Rev', 'PROCREV', 'Proc Rav', 'Proc Raw', 'Process Rev']
+        for pattern in proc_rev_patterns_multiline:
+            if pattern in line_clean and not result["router_proc_rev"]:
+                # Check next line for the proc rev value
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if re.match(r'^[A-Z0-9]+$', next_line) and len(next_line) <= 5:
+                        result["router_proc_rev"] = next_line
+                        break
     
     # Check if we successfully extracted at least some information
     extracted_fields = [v for v in result.values() if v is not None and v != False]
