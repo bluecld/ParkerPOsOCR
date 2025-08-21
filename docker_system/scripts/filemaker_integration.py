@@ -7,6 +7,8 @@ import json
 import os
 import requests
 import urllib3
+import time
+from datetime import datetime
 
 # Suppress SSL certificate warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -248,6 +250,7 @@ class FileMakerIntegration:
                             pass
                         if script_resp.status_code == 200:
                             print("✅ PDFTimesheet script executed on existing record")
+                            print("🔄 Barcode refresh is now handled within PDFTimesheet script")
                         else:
                             print(f"⚠️ Script execution via edit failed: {script_resp.status_code} - {script_resp.text}")
                     return True
@@ -402,6 +405,8 @@ class FileMakerIntegration:
                 
                 if script_error == '0':
                     print("✅ PDFTimesheet script executed successfully during PreInventory record creation")
+                    print("🔄 Barcode refresh is now handled within PDFTimesheet script")
+                    
                     print(f"📄 PDF should be generated at: filemac:/Macintosh HD/Users/Shared/ParkerPOsOCR/exports/{po_number}.pdf")
                     print(f"   (Mac filesystem: /Users/Shared/ParkerPOsOCR/exports/{po_number}.pdf)")
                     print(f"⚠️ Note: PreInventory record {preinventory_record_id} may have been deleted by script (normal behavior)")
@@ -730,6 +735,112 @@ class FileMakerIntegration:
                 print(f"   Available PDF files: {files}")
         
         return upload_success
+
+    def refresh_barcodes(self, record_id):
+        """Force refresh of barcode container fields that use FileMaker Barcode Generator plugin
+        
+        NOTE: This method is now primarily for manual/debugging use.
+        Barcode refresh is handled automatically within the PDFTimesheet script for better reliability.
+        """
+        if not self.token:
+            return False
+        
+        headers = {
+            'Authorization': f'Bearer {self.token}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Method 1: Try script-based refresh (recommended approach)
+        edit_url = f"{self.server}/fmi/data/v1/databases/{self.database}/layouts/{self.layout}/records/{record_id}"
+        
+        # The RefreshBarcodes script should:
+        # 1. Go to Layout ["Time Clock Reduced"]
+        # 2. Go to Record/Request/Page [record_id]
+        # 3. Refresh Window [Flush cached join results; Flush cached SQL data]
+        # 4. Set Field [barcode_container_field; GetValue(Get(CalculationRepetitionNumber); 1)]
+        # 5. Commit Records/Requests [Skip data entry validation; No dialog]
+        barcode_refresh_param = json.dumps({
+            "record_id": record_id,
+            "layout": "Time Clock Reduced",  # Use the actual print layout with barcodes
+            "action": "refresh_barcode_containers"
+        })
+        
+        refresh_data = {
+            "fieldData": {},
+            "script": "RefreshBarcodes",
+            "script.param": barcode_refresh_param
+        }
+        
+        try:
+            response = requests.patch(edit_url, json=refresh_data, headers=headers, verify=False)
+            if response.status_code == 200:
+                response_data = response.json().get('response', {})
+                script_error = response_data.get('scriptError', '0')
+                if script_error == '0':
+                    print(f"✅ Barcode container fields refreshed via RefreshBarcodes script for record {record_id}")
+                    return True
+                else:
+                    print(f"⚠️ RefreshBarcodes script error {script_error}: {response_data.get('scriptResult', 'No result')}")
+                    return self._refresh_barcodes_via_field_update(record_id, headers, edit_url)
+            else:
+                print(f"⚠️ Script-based barcode refresh failed: {response.status_code} - {response.text}")
+                # Fallback: Try field update method
+                return self._refresh_barcodes_via_field_update(record_id, headers, edit_url)
+        except Exception as e:
+            print(f"❌ Barcode refresh error: {e}")
+            return False
+    
+    def _refresh_barcodes_via_field_update(self, record_id, headers, edit_url):
+        """Fallback method: Force container field recalculation for Barcode Generator plugin"""
+        try:
+            # For FileMaker Barcode Generator plugin containers, we need to:
+            # 1. Update a calculation trigger field or timestamp
+            # 2. Force a window refresh to trigger plugin recalculation
+            
+            print(f"🔄 Attempting fallback barcode refresh for record {record_id}...")
+            
+            # Method A: Update a timestamp field that might trigger recalculation
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            fallback_data = {
+                "fieldData": {
+                    # Try common trigger field names - replace with your actual field names
+                    "ModificationTimestamp": current_time,
+                    "LastUpdated": current_time,
+                    "BarcodeRefresh": str(int(time.time()))
+                }
+            }
+            
+            response = requests.patch(edit_url, json=fallback_data, headers=headers, verify=False)
+            if response.status_code == 200:
+                print(f"✅ Barcode refresh trigger updated for record {record_id}")
+                
+                # Method B: Try to trigger a second update to force container recalculation
+                time.sleep(0.5)  # Brief pause
+                
+                # Update a barcode data field if it exists (this often triggers plugin recalc)
+                barcode_trigger_data = {
+                    "fieldData": {
+                        "BarcodeData1": "trigger",  # Replace with actual barcode data field names
+                        "BarcodeData2": "trigger",
+                        "PartNumber": "refresh"     # Common field that might be used for barcodes
+                    }
+                }
+                
+                response2 = requests.patch(edit_url, json=barcode_trigger_data, headers=headers, verify=False)
+                if response2.status_code == 200:
+                    print(f"✅ Barcode data fields updated for record {record_id}")
+                    print(f"💡 Note: Manual FileMaker window refresh may be needed to see barcode containers")
+                    return True
+                else:
+                    print(f"⚠️ Barcode data field update failed: {response2.status_code}")
+                    return True  # First update succeeded
+            else:
+                print(f"⚠️ Field-based barcode refresh failed: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Fallback barcode refresh error: {e}")
+            return False
 
 
 def integrate_with_filemaker(po_folder_path):
