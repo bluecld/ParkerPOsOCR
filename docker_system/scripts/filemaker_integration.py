@@ -51,7 +51,6 @@ class FileMakerIntegration:
             "Amy Schlock",
             "Cesar Sarabia",
             "Anthony Frederick",
-            "Nora Seclen",
         ]
 
     def _normalize_name(self, name: str):
@@ -61,6 +60,12 @@ class FileMakerIntegration:
 
     def _map_planner(self, buyer_name: str) -> str:
         cleaned = self._normalize_name(buyer_name) or ""
+        
+        # Special mapping for Nora Seclen -> Steven Huynh (no longer working there)
+        if cleaned.lower() in ["nora seclen", "nora\nseclen"]:
+            return "Steven Huynh"
+        
+        # Standard mapping for active planners
         for val in self.allowed_planners:
             if cleaned.lower() == val.lower():
                 return val
@@ -100,8 +105,8 @@ class FileMakerIntegration:
             self.last_error = f"Connection error: {e}"
             return False
 
-    def insert_po_data(self, po_info):
-        """Insert PO data into FileMaker database and trigger PDFTimesheet script"""
+    def insert_po_data(self, po_info, po_folder_path=None):
+        """Insert PO data into FileMaker database, trigger PDFTimesheet script, and upload PDFs"""
         if not self.token:
             if not self.authenticate():
                 return False
@@ -222,6 +227,15 @@ class FileMakerIntegration:
                     record_id = retry_resp.json().get('response', {}).get('recordId')
                     self.last_record_id = record_id
                     if record_id:
+                        # Upload PDFs to container fields if folder path provided
+                        if po_folder_path:
+                            print("📤 Uploading PDFs to container fields...")
+                            upload_success = self.upload_po_pdfs(record_id, po_folder_path, po_number)
+                            if upload_success:
+                                print("✅ PDF uploads completed successfully")
+                            else:
+                                print("⚠️ Some PDF uploads may have failed")
+                        
                         edit_url = f"{preinventory_url}/{record_id}"
                         print(f"➡️  Triggering FileMaker script '{self.script_name}' (edit) with layout '{self.print_layout}' for PO {po_number}")
                         edit_body = {"fieldData": {}, "script": self.script_name, "script.param": script_param}
@@ -376,6 +390,16 @@ class FileMakerIntegration:
                 self.last_script_result = script_result
 
                 print(f"✅ PO {po_info.get('purchase_order_number')} inserted to PreInventory (Record ID: {preinventory_record_id})")
+                
+                # Upload PDFs to container fields if folder path provided
+                if po_folder_path and preinventory_record_id:
+                    print("📤 Uploading PDFs to container fields...")
+                    upload_success = self.upload_po_pdfs(preinventory_record_id, po_folder_path, po_number)
+                    if upload_success:
+                        print("✅ PDF uploads completed successfully")
+                    else:
+                        print("⚠️ Some PDF uploads may have failed")
+                
                 if script_error == '0':
                     print("✅ PDFTimesheet script executed successfully during PreInventory record creation")
                     print(f"📄 PDF should be generated at: filemac:/Macintosh HD/Users/Shared/ParkerPOsOCR/exports/{po_number}.pdf")
@@ -588,6 +612,125 @@ class FileMakerIntegration:
             print(f"❌ Layout metadata error: {e}")
             return None
 
+    def upload_pdf_to_container(self, record_id, field_name, pdf_path, filename=None):
+        """Upload PDF file to a FileMaker container field"""
+        if not self.token:
+            if not self.authenticate():
+                return False
+                
+        if not os.path.exists(pdf_path):
+            print(f"❌ PDF file not found: {pdf_path}")
+            return False
+            
+        # Use original filename if not provided
+        if not filename:
+            filename = os.path.basename(pdf_path)
+            
+        url = f"{self.server}/fmi/data/v2/databases/{self.database}/layouts/{self.layout}/records/{record_id}/containers/{field_name}"
+        
+        headers = {
+            'Authorization': f'Bearer {self.token}'
+        }
+        
+        try:
+            with open(pdf_path, 'rb') as pdf_file:
+                files = {
+                    'upload': (filename, pdf_file, 'application/pdf')
+                }
+                
+                response = requests.post(url, headers=headers, files=files, verify=False)
+                self.last_status_code = response.status_code
+                self.last_response_text = response.text
+                
+                if response.status_code == 200:
+                    print(f"✅ PDF uploaded to {field_name}: {filename}")
+                    return True
+                else:
+                    self.last_error = f"Upload failed: {response.status_code} - {response.text}"
+                    print(f"❌ PDF upload failed: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            self.last_error = f"Upload error: {e}"
+            print(f"❌ PDF upload error: {e}")
+            return False
+
+    def upload_po_pdfs(self, record_id, po_folder_path, po_number):
+        """Upload both PO PDF and Router PDF as separate files to FileMaker"""
+        upload_success = True
+        
+        # Look for both split files created by extract_po_info.py
+        po_pdf_path = None
+        router_pdf_path = None
+        
+        # Check for the split PO file (PO section only)
+        expected_po_file = os.path.join(po_folder_path, f"PO_{po_number}.pdf")
+        if os.path.exists(expected_po_file):
+            po_pdf_path = expected_po_file
+            print(f"📄 Found split PO file: PO_{po_number}.pdf")
+        
+        # Check for the split Router file (Router section only)  
+        expected_router_file = os.path.join(po_folder_path, f"Router_{po_number}.pdf")
+        if os.path.exists(expected_router_file):
+            router_pdf_path = expected_router_file
+            print(f"📄 Found split Router file: Router_{po_number}.pdf")
+        
+        # Fallback: look for other PDF files in the folder if split files not found
+        if not po_pdf_path or not router_pdf_path:
+            if os.path.exists(po_folder_path):
+                for file in os.listdir(po_folder_path):
+                    if file.endswith('.pdf'):
+                        if not po_pdf_path and ('PO_' in file or (file.startswith(po_number) and 'Router' not in file)):
+                            po_pdf_path = os.path.join(po_folder_path, file)
+                            print(f"📄 Found PO file: {file}")
+                        elif not router_pdf_path and 'Router_' in file:
+                            router_pdf_path = os.path.join(po_folder_path, file)
+                            print(f"📄 Found Router file: {file}")
+        
+        # Upload PO PDF to IncomingPO container field
+        if po_pdf_path:
+            filename = f"{po_number}_PO.pdf"
+            if self.upload_pdf_to_container(record_id, 'IncomingPO', po_pdf_path, filename):
+                print(f"✅ PO PDF uploaded to IncomingPO: {filename}")
+            else:
+                upload_success = False
+                print(f"❌ Failed to upload PO PDF: {filename}")
+        else:
+            print(f"⚠️  No PO PDF found in {po_folder_path}")
+            upload_success = False
+        
+        # Upload Router PDF to a separate container field (need to determine field name)
+        # For now, let's try common field names or create a new one
+        if router_pdf_path:
+            filename = f"{po_number}_Router.pdf"
+            # Try different possible container field names for router
+            router_fields_to_try = ['Router', 'RouterPDF', 'IncomingRouter', 'RoutingSheet', 'WorkOrder']
+            router_uploaded = False
+            
+            for field_name in router_fields_to_try:
+                if self.upload_pdf_to_container(record_id, field_name, router_pdf_path, filename):
+                    print(f"✅ Router PDF uploaded to {field_name}: {filename}")
+                    router_uploaded = True
+                    break
+                else:
+                    print(f"⚠️  Failed to upload to {field_name} (field may not exist)")
+            
+            if not router_uploaded:
+                print(f"❌ Failed to upload Router PDF to any container field: {filename}")
+                print("   Consider adding a 'Router' or 'RouterPDF' container field to FileMaker")
+                # Don't fail the entire upload if router upload fails - PO is more critical
+                # upload_success = False
+        else:
+            print(f"⚠️  No Router PDF found in {po_folder_path}")
+            
+        # List available files for debugging if either file not found
+        if not po_pdf_path or not router_pdf_path:
+            if os.path.exists(po_folder_path):
+                files = [f for f in os.listdir(po_folder_path) if f.endswith('.pdf')]
+                print(f"   Available PDF files: {files}")
+        
+        return upload_success
+
 
 def integrate_with_filemaker(po_folder_path):
     fm = FileMakerIntegration()
@@ -602,7 +745,7 @@ def integrate_with_filemaker(po_folder_path):
         if fm.check_duplicate_po(po_number):
             print(f"⚠️  PO {po_number} already exists in FileMaker - skipping")
             return True
-        success = fm.insert_po_data(po_info)
+        success = fm.insert_po_data(po_info, po_folder_path)
         if success:
             print(f"🖨️ Attempting to print PDF for PO {po_number}...")
             fm.print_pdf_on_mac(po_number)

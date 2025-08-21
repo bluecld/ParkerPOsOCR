@@ -460,7 +460,73 @@ def extract_quantity_and_dock_date(text):
     
     lines = text.split('\n')
     
-    # Strategy 0: Item-number anchored (prefer line item 10, else 20)
+    # Strategy 0: HIGH PRIORITY - Look for quantities that appear after the word "Quantity" (most reliable)
+    text_lower = text.lower()
+    if 'quantity' in text_lower:
+        # Find all occurrences of "quantity" and score them by context quality
+        quantity_candidates = []
+        
+        for match in re.finditer(r'\bquantity\b', text_lower):
+            start_pos = match.end()
+            # Look in the next 200 characters after "Quantity"
+            search_region = text[start_pos:start_pos + 200]
+            
+            # Look for decimal numbers first (more precise) but exclude obvious prices
+            decimal_matches = re.findall(r'\b(\d{1,4})\.00\b', search_region)
+            for x in decimal_matches:
+                val = int(x)
+                if 1 <= val <= 100:  # Reasonable quantity range
+                    score = 100  # High score for reasonable quantities
+                elif 101 <= val <= 200 and val not in [150, 175, 180, 190]:  # Some higher quantities but exclude common prices
+                    score = 80   # Good score
+                else:
+                    continue  # Skip obvious prices
+                
+                # Bonus scoring for better context indicators
+                if 'UM' in search_region or 'EA' in search_region:
+                    score += 20  # Unit indicators
+                if re.search(r'\d{1,2}/\d{1,2}/\d{4}', search_region):
+                    score += 15  # Date nearby
+                if 'Delivery' in search_region or 'Date' in search_region:
+                    score += 10  # Delivery context
+                    
+                quantity_candidates.append((score, val, search_region))
+            
+            # Fallback to whole numbers if no decimals found
+            int_matches = re.findall(r'\b(\d{1,4})\b', search_region)
+            for x in int_matches:
+                val = int(x)
+                if 1 <= val <= 100:
+                    score = 90   # Slightly lower than decimals
+                elif 101 <= val <= 200 and val not in [150, 175, 180, 190]:
+                    score = 70
+                else:
+                    continue
+                
+                # Same bonus scoring for context
+                if 'UM' in search_region or 'EA' in search_region:
+                    score += 20
+                if re.search(r'\d{1,2}/\d{1,2}/\d{4}', search_region):
+                    score += 15
+                if 'Delivery' in search_region or 'Date' in search_region:
+                    score += 10
+                    
+                quantity_candidates.append((score, val, search_region))
+        
+        # Select the highest scoring quantity
+        if quantity_candidates:
+            quantity_candidates.sort(key=lambda x: x[0], reverse=True)  # Sort by score descending
+            quantity = quantity_candidates[0][1]  # Take highest scoring quantity
+            best_region = quantity_candidates[0][2]
+            
+            # Look for dock date in the best region
+            date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', best_region)
+            if date_match:
+                dock_date = date_match.group(1)
+            print(f"🎯 Found quantity after 'Quantity' label: {quantity} (score: {quantity_candidates[0][0]})")
+            return quantity, dock_date
+
+    # Strategy 1: Item-number anchored (prefer line item 10, else 20) - FALLBACK ONLY
     def is_item_line(line: str, item_no: str) -> bool:
         # Consider it an item row if the item number appears near the left within first ~20 chars
         prefix = line[:20]
@@ -488,12 +554,13 @@ def extract_quantity_and_dock_date(text):
         if unit_pos is not None and unit_pos < len(left_region):
             left_region = left_region[:unit_pos]
 
-        # Prefer the LARGEST .00 before the unit (quantity usually larger than unit price)
+        # Prefer reasonable quantities (.00 numbers in reasonable range)
         mdec = [int(m.group(1)) for m in re.finditer(r'\b(\d{1,4})\.00\b', left_region)]
         if mdec:
-            candidates = [v for v in mdec if 1 <= v <= 2000]
+            # Filter to reasonable quantity range (prefer smaller quantities over prices)
+            candidates = [v for v in mdec if 1 <= v <= 200]  # Reduced from 2000 to 200
             if candidates:
-                return max(candidates)
+                return min(candidates)  # Changed from max to min - quantities usually smaller than prices
 
         # As a fallback, consider integers in left region but ignore leading item numbers like 10/20 at start
         int_positions = [(int(m.group(1)), m.start()) for m in re.finditer(r'\b(\d{1,4})\b', left_region)]
@@ -971,16 +1038,52 @@ def extract_dpas_ratings(text):
             for j in range(i + 1, min(i + 3, len(lines))):
                 search_text += ' ' + lines[j]
             
+            # Clean up common OCR errors in DPAS ratings before extraction
+            # Fix common OCR characters: · → 1, I → 1, l → 1, O → 0
+            search_text_cleaned = search_text.upper()
+            search_text_cleaned = re.sub(r'DO([AC])·', r'DO\g<1>1', search_text_cleaned)  # DOA· → DOA1
+            search_text_cleaned = re.sub(r'DO([AC])[Il]', r'DO\g<1>1', search_text_cleaned)  # DOAI → DOA1, DOAl → DOA1
+            search_text_cleaned = re.sub(r'D([OX])([AC])O', r'D\g<1>\g<2>0', search_text_cleaned)  # DOAO → DOA0
+            
             # Look for DPAS patterns: DOA, DOC, DXA followed by numbers (4 characters total)
-            ratings = re.findall(r'(D[OX][AC]\d+)', search_text.upper())
+            ratings = re.findall(r'(D[OX][AC]\d+)', search_text_cleaned)
             dpas_ratings.extend(ratings)
+            
+            # Also try broader pattern with special characters that might be digits
+            if not ratings:
+                # Look for patterns like DOA followed by any character that might be a digit
+                broader_matches = re.findall(r'D[OX][AC][·Il0-9]', search_text)
+                for match in broader_matches:
+                    # Convert common OCR errors to proper DPAS format
+                    fixed_match = match.upper()
+                    fixed_match = fixed_match.replace('·', '1')
+                    fixed_match = fixed_match.replace('I', '1') 
+                    fixed_match = fixed_match.replace('l', '1')
+                    fixed_match = fixed_match.replace('O', '0')
+                    # Validate it's now a proper DPAS format
+                    if re.match(r'D[OX][AC]\d', fixed_match):
+                        dpas_ratings.append(fixed_match)
+            
             break
     
     # If not found in structured way, search more broadly
     if not dpas_ratings:
+        # Clean up common OCR errors first
+        text_cleaned = text.upper()
+        text_cleaned = re.sub(r'DO([AC])·', r'DO\g<1>1', text_cleaned)  # DOA· → DOA1
+        text_cleaned = re.sub(r'DO([AC])[Il]', r'DO\g<1>1', text_cleaned)  # DOAI → DOA1
+        
         # Look for DOA/DOC/DXA patterns anywhere in text (4 characters total)
-        all_ratings = re.findall(r'(D[OX][AC]\d+)', text.upper())
+        all_ratings = re.findall(r'(D[OX][AC]\d+)', text_cleaned)
         dpas_ratings.extend(all_ratings)
+        
+        # Fallback: look for partial patterns and try to fix them
+        if not dpas_ratings:
+            partial_matches = re.findall(r'D[OX][AC][·Il0-9]', text.upper())
+            for match in partial_matches:
+                fixed_match = match.replace('·', '1').replace('I', '1').replace('l', '1').replace('O', '0')
+                if re.match(r'D[OX][AC]\d', fixed_match):
+                    dpas_ratings.append(fixed_match)
     
     # Remove duplicates while preserving order
     seen = set()

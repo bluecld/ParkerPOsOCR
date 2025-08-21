@@ -127,7 +127,7 @@ def process_pdf_file(input_pdf_path):
                     
                     # Check if PO already exists to avoid duplicates
                     if not fm.check_duplicate_po(po_data.get('purchase_order_number')):
-                        success = fm.insert_po_data(po_data)
+                        success = fm.insert_po_data(po_data, str(latest_po_folder))
                         
                         if success:
                             print(f"✅ PO {po_data.get('purchase_order_number')} successfully added to FileMaker")
