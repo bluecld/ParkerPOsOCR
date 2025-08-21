@@ -249,16 +249,18 @@ def extract_production_order(text):
     return None
 
 def extract_revision(text):
-    """Extract revision number following 'REV' - clean to 1-3 characters"""
-    # Prefer a single letter/letter+digit right after REV to avoid grabbing unrelated tokens
-    pattern = r'\bREV\s*([A-Z](?:[0-9])?)\b'
+    """Extract revision number following 'REV' - clean to 1-3 characters, preserve NC"""
+    # Updated pattern to handle multi-letter revisions like NC (No Change)
+    # Allow 1-3 characters: single letter, letter+digit, or special codes like NC
+    pattern = r'\bREV\s*([A-Z]{1,2}[0-9]?|NC)\b'
     matches = re.findall(pattern, text, re.IGNORECASE)
     if matches:
         revision = matches[0].upper()
-        # Accept 1-2 char revisions like C, D1; otherwise trim to 1 char
-        if len(revision) in (1, 2):
+        # Accept 1-3 char revisions like C, D1, NC; keep as-is for valid lengths
+        if len(revision) <= 3:
             return revision
-        return revision[:1]
+        # If somehow longer than 3 chars, trim to first 3
+        return revision[:3]
     return None
 
 def extract_part_number(text, production_order):
