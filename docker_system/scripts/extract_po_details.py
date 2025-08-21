@@ -1258,6 +1258,220 @@ def classify_q_clauses_for_business(quality_clauses_dict, classification):
     
     return result
 
+
+def extract_router_validation_info(router_text):
+    """Extract validation information from first router page
+    
+    Extracts:
+    - Part Number (for validation against PO)
+    - Order Number (for validation against PO) 
+    - Doc Rev/Rev (for validation against PO)
+    - Proc Rev (new information to extract)
+    
+    Returns dict with extracted values and validation flags
+    """
+    if not router_text:
+        return {
+            "router_part_number": None,
+            "router_order_number": None, 
+            "router_doc_rev": None,
+            "router_proc_rev": None,
+            "extraction_success": False
+        }
+    
+    result = {
+        "router_part_number": None,
+        "router_order_number": None,
+        "router_doc_rev": None, 
+        "router_proc_rev": None,
+        "extraction_success": False
+    }
+    
+    lines = router_text.split('\n')
+    
+    # Pattern matching for router page fields
+    for i, line in enumerate(lines):
+        line_clean = line.strip()
+        
+        # Extract Part Number - look for patterns like part numbers in router
+        # Handle "RELAY ASSY" style descriptions and convert to part numbers
+        part_patterns = [
+            r'Part\s*(?:Number|#)?\s*:?\s*([A-Z0-9]+-[0-9]+)',
+            r'P/?N\s*:?\s*([A-Z0-9]+-[0-9]+)',
+            r'Material\s*(?:Number|#)?\s*:?\s*([A-Z0-9]+-[0-9]+)',
+            r'^([A-Z0-9]+-[0-9]+)\s*$',  # Standalone part number
+            r'([0-9]{6}-[0-9]{1,2})',    # 6 digits - 1-2 digits pattern
+            # Handle material description pattern: "RELAY ASSY" -> extract as description
+            r'^\s*([A-Z][A-Z\s]+)\s*$'   # Material description pattern
+        ]
+        
+        for pattern in part_patterns:
+            match = re.search(pattern, line_clean, re.IGNORECASE)
+            if match and not result["router_part_number"]:
+                candidate = match.group(1).strip()
+                # Skip obvious non-part-numbers
+                if not any(skip in candidate.upper() for skip in ['ORDER', 'QUANTITY', 'REV', 'PROC', 'DESCRIPTION']):
+                    result["router_part_number"] = candidate
+                    break
+        
+        # Extract Order Number - look for PO numbers like 125157969
+        # Check both current line and next lines for standalone numbers
+        order_patterns = [
+            r'Order\s*(?:Number|#)?\s*:?\s*([0-9]{8,10})',
+            r'PO\s*(?:Number|#)?\s*:?\s*([0-9]{8,10})',
+            r'Purchase\s*Order\s*:?\s*([0-9]{8,10})',
+            r'^([0-9]{8,10})\s*$',  # Standalone order number (8-10 digits)
+        ]
+        
+        for pattern in order_patterns:
+            match = re.search(pattern, line_clean, re.IGNORECASE)
+            if match and not result["router_order_number"]:
+                result["router_order_number"] = match.group(1).strip()
+                break
+        
+        # Special handling for "Rev Lev" followed by value on next line (PRIORITY)
+        if 'Rev Lev' in line_clean and not result["router_doc_rev"]:
+            # Check next line for the revision value
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if re.match(r'^[A-Z0-9]+$', next_line) and len(next_line) <= 3:
+                    result["router_doc_rev"] = next_line
+        
+        # Extract Doc Rev - look for revision information (LOWER PRIORITY)
+        if not result["router_doc_rev"]:  # Only if not already found via "Rev Lev"
+            doc_rev_patterns = [
+                r'Doc\s*Rev\s*:?\s*([A-Z0-9]+)',
+                r'Document\s*Revision\s*:?\s*([A-Z0-9]+)',
+                r'Rev\s*:?\s*([A-Z0-9]+)',
+                r'Revision\s*:?\s*([A-Z0-9]+)',
+            ]
+            
+            for pattern in doc_rev_patterns:
+                match = re.search(pattern, line_clean, re.IGNORECASE)
+                if match:
+                    # Skip "Rev Lev" matches
+                    if 'Lev' not in match.group(1):
+                        result["router_doc_rev"] = match.group(1).strip()
+                        break
+        
+        # Extract Order Number from table-style format
+        # Handle "125157969            RELAY ASSY                              50 EA" pattern
+        if re.match(r'^[0-9]{8,10}\s+[A-Z]', line_clean):
+            parts = line_clean.split()
+            if parts and re.match(r'^[0-9]{8,10}$', parts[0]):
+                result["router_order_number"] = parts[0]
+                # Extract part description as well
+                if len(parts) > 1 and not result["router_part_number"]:
+                    # Join description parts (e.g., "RELAY ASSY")
+                    description_parts = []
+                    for part in parts[1:]:
+                        if not re.match(r'^[0-9]+\s*(EA|PC|PCS)?\s*$', part):  # Skip quantity
+                            description_parts.append(part)
+                        else:
+                            break
+                    if description_parts:
+                        result["router_part_number"] = " ".join(description_parts)
+        
+        # Extract Proc Rev - NEW FIELD to extract
+        # Handle "Proc Rev" followed by value on next line or same line  
+        proc_rev_patterns = [
+            r'Proc\s*Rev\s*:?\s*([A-Z0-9]+)',
+            r'Process\s*Rev(?:ision)?\s*:?\s*([A-Z0-9]+)',
+            r'Proc\s*(?:Revision|Rev)\s*:?\s*([A-Z0-9]+)',
+        ]
+        
+        for pattern in proc_rev_patterns:
+            match = re.search(pattern, line_clean, re.IGNORECASE)
+            if match and not result["router_proc_rev"]:
+                result["router_proc_rev"] = match.group(1).strip()
+                break
+                
+        # Special handling for "Proc Rev" followed by value on next line
+        if 'Proc Rev' in line_clean and not result["router_proc_rev"]:
+            # Check next line for the proc rev value
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if re.match(r'^[A-Z0-9]+$', next_line) and len(next_line) <= 5:
+                    result["router_proc_rev"] = next_line
+    
+    # Check if we successfully extracted at least some information
+    extracted_fields = [v for v in result.values() if v is not None and v != False]
+    result["extraction_success"] = len(extracted_fields) > 1  # At least 2 fields extracted
+    
+    return result
+
+
+def validate_po_router_match(po_info, router_info):
+    """Validate that PO and Router documents match and belong to same job
+    
+    Compares:
+    - Part Number
+    - Order Number  
+    - Doc Rev (PO Rev vs Router Doc Rev)
+    
+    Returns validation results with match status and discrepancies
+    """
+    validation = {
+        "documents_match": True,
+        "part_number_match": None,
+        "order_number_match": None,
+        "doc_rev_match": None,
+        "discrepancies": [],
+        "validation_summary": ""
+    }
+    
+    # Validate Part Number
+    po_part = po_info.get("part_number")
+    router_part = router_info.get("router_part_number")
+    
+    if po_part and router_part:
+        validation["part_number_match"] = (po_part == router_part)
+        if not validation["part_number_match"]:
+            validation["discrepancies"].append(f"Part Number mismatch: PO='{po_part}' vs Router='{router_part}'")
+            validation["documents_match"] = False
+    elif po_part or router_part:
+        validation["part_number_match"] = False
+        validation["discrepancies"].append(f"Part Number missing: PO='{po_part}' Router='{router_part}'")
+        validation["documents_match"] = False
+    
+    # Validate Order Number
+    po_order = po_info.get("purchase_order_number")
+    router_order = router_info.get("router_order_number")
+    
+    if po_order and router_order:
+        validation["order_number_match"] = (str(po_order) == str(router_order))
+        if not validation["order_number_match"]:
+            validation["discrepancies"].append(f"Order Number mismatch: PO='{po_order}' vs Router='{router_order}'")
+            validation["documents_match"] = False
+    elif po_order or router_order:
+        validation["order_number_match"] = False
+        validation["discrepancies"].append(f"Order Number missing: PO='{po_order}' Router='{router_order}'")
+        validation["documents_match"] = False
+    
+    # Validate Doc Rev (PO Rev vs Router Doc Rev)
+    po_rev = po_info.get("rev")
+    router_rev = router_info.get("router_doc_rev")
+    
+    if po_rev and router_rev:
+        validation["doc_rev_match"] = (po_rev == router_rev)
+        if not validation["doc_rev_match"]:
+            validation["discrepancies"].append(f"Doc Rev mismatch: PO Rev='{po_rev}' vs Router Doc Rev='{router_rev}'")
+            validation["documents_match"] = False
+    elif po_rev or router_rev:
+        validation["doc_rev_match"] = False
+        validation["discrepancies"].append(f"Doc Rev missing: PO Rev='{po_rev}' Router Doc Rev='{router_rev}'")
+        validation["documents_match"] = False
+    
+    # Generate summary
+    if validation["documents_match"]:
+        validation["validation_summary"] = "✅ PO and Router documents match - validation successful"
+    else:
+        discrepancy_count = len(validation["discrepancies"])
+        validation["validation_summary"] = f"⚠️ {discrepancy_count} validation issue(s) found - documents may not match"
+    
+    return validation
+
+
 def extract_text_from_first_router_page(pdf_path):
     """Extract text from only the first page of the router PDF"""
     if not os.path.exists(pdf_path):
@@ -1349,13 +1563,37 @@ def main():
     text = extract_text_from_pdf(po_file)
     
     # ENHANCEMENT: Also extract text from first page of router section
+    router_info = {}
+    router_validation = {}
+    
     if os.path.exists(router_file):
         print("Extracting text from first router page for additional information...")
         router_text = extract_text_from_first_router_page(router_file)
         text += router_text  # Combine PO text with first router page text
         print("Combined PO text with first router page text for comprehensive extraction")
+        
+        # NEW: Extract validation information and Proc Rev from router
+        print("\n🔍 Extracting router validation information...")
+        router_info = extract_router_validation_info(router_text)
+        
+        if router_info["extraction_success"]:
+            print(f"✅ Router information extracted:")
+            print(f"   Router Part Number: {router_info['router_part_number']}")
+            print(f"   Router Order Number: {router_info['router_order_number']}")
+            print(f"   Router Doc Rev: {router_info['router_doc_rev']}")
+            print(f"   Router Proc Rev: {router_info['router_proc_rev']}")
+        else:
+            print("⚠️ Limited router information extracted")
+            
     else:
         print("No router file found - processing only PO pages")
+        router_info = {
+            "router_part_number": None,
+            "router_order_number": None, 
+            "router_doc_rev": None,
+            "router_proc_rev": None,
+            "extraction_success": False
+        }
     
     print("\\nExtracting Production Order...")
     production_order = extract_production_order(text)
@@ -1402,7 +1640,29 @@ def main():
     with open(json_file, 'r') as f:
         po_info = json.load(f)
     
-    # Add new information including enhanced Q clause analysis
+    # NEW: Validate PO and Router document matching
+    if router_info.get("extraction_success"):
+        print("\\n🔍 Validating PO and Router document matching...")
+        
+        # Create temporary PO info for validation (with extracted values)
+        temp_po_info = {
+            "part_number": part_number,
+            "purchase_order_number": production_order,  # Use production_order as PO number
+            "rev": revision
+        }
+        
+        router_validation = validate_po_router_match(temp_po_info, router_info)
+        print(f"   {router_validation['validation_summary']}")
+        
+        if router_validation["discrepancies"]:
+            print("   📋 Validation details:")
+            for discrepancy in router_validation["discrepancies"]:
+                print(f"      • {discrepancy}")
+    else:
+        print("\\n⚠️ Skipping PO/Router validation - insufficient router data")
+        router_validation = {"documents_match": None, "validation_summary": "Router validation skipped - insufficient data"}
+    
+    # Add new information including enhanced Q clause analysis and router validation
     po_info.update({
         "production_order": production_order,
         "revision": revision,
@@ -1416,7 +1676,14 @@ def main():
         "buyer_name": buyer_name,
         "dpas_ratings": dpas_ratings,
         "quality_clauses": quality_clauses,
-        "quality_clauses_analysis": quality_clauses_analysis
+        "quality_clauses_analysis": quality_clauses_analysis,
+        # NEW: Router validation information
+        "router_part_number": router_info.get("router_part_number"),
+        "router_order_number": router_info.get("router_order_number"),
+        "router_doc_rev": router_info.get("router_doc_rev"),
+        "router_proc_rev": router_info.get("router_proc_rev"),  # NEW FIELD
+        "router_extraction_success": router_info.get("extraction_success"),
+        "router_validation": router_validation
     })
     
     # Save updated JSON
