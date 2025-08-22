@@ -14,7 +14,7 @@ sleep 8
 
 if docker ps | grep -q "po-dashboard"; then
     echo "✅ Dashboard restarted!"
-    echo "🌐 Access at: https://192.168.0.62:8443"
+    echo "🌐 Access at: https://192.168.0.62:9443"
     echo "💡 Hard refresh your browser: Ctrl+Shift+R (or Cmd+Shift+R on Mac)"
 else
     echo "❌ Restart failed! Use full deployment script."

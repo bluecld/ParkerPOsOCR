@@ -28,11 +28,17 @@ def detect_and_correct_orientation(img: Image.Image):
     """
     try:
         osd = pytesseract.image_to_osd(img)
+        print(f"OSD output: {osd}")
         angle = int([line for line in osd.split("\n") if "Rotate:" in line][0].split(":")[1].strip())
-        if angle and angle % 360 != 0:
+        print(f"Detected rotation angle: {angle}°")
+        if angle != 0:  # Fixed logic: angle 0 is falsy but still valid
             img = img.rotate(angle, expand=True)
+            print(f"Applied {angle}° rotation to image")
+        else:
+            print("No rotation needed - page is correctly oriented")
         return img, angle
-    except Exception:
+    except Exception as e:
+        print(f"Orientation detection failed: {e}")
         return img, 0
 
 
@@ -48,9 +54,15 @@ def preprocess_image(img: Image.Image) -> Image.Image:
     return Image.fromarray(thr)
 
 
-def pdf_to_searchable(input_pdf: str, output_pdf: str):
+def pdf_to_searchable(input_pdf: str, output_pdf: str, save_corrected_orientation: bool = False):
     """
     Convert a PDF to a searchable PDF by adding invisible OCR text overlay
+    
+    Args:
+        input_pdf: Path to input PDF file
+        output_pdf: Path to output searchable PDF file  
+        save_corrected_orientation: If True, saves pages in corrected orientation for better readability
+                                   If False, preserves original page orientation (default behavior)
     """
     if not os.path.exists(input_pdf):
         raise FileNotFoundError(input_pdf)
@@ -73,16 +85,54 @@ def pdf_to_searchable(input_pdf: str, output_pdf: str):
         # OCR word-level data
         ocr = pytesseract.image_to_data(processed_img, output_type=pytesseract.Output.DICT, config="--oem 3 --psm 6")
 
-        # Create output page (respect rotation if changed)
-        if rotation_angle in [90, 270]:
-            new_page = output_pdf_doc.new_page(width=page.rect.height, height=page.rect.width)
-            target_rect = fitz.Rect(0, 0, page.rect.height, page.rect.width)
+        # Determine page dimensions and rendering approach
+        if save_corrected_orientation and rotation_angle != 0:
+            # Save with corrected orientation for better readability
+            if rotation_angle in [90, 270]:
+                new_page = output_pdf_doc.new_page(width=page.rect.height, height=page.rect.width)
+                target_rect = fitz.Rect(0, 0, page.rect.height, page.rect.width)
+            else:
+                new_page = output_pdf_doc.new_page(width=page.rect.width, height=page.rect.height) 
+                target_rect = page.rect
+            
+            # Create a rotated version of the original page for the corrected orientation
+            # This requires creating a transformation matrix for the rotation
+            if rotation_angle == 90:
+                mat = fitz.Matrix(0, 1, -1, 0, page.rect.width, 0)
+                render_rect = fitz.Rect(0, 0, page.rect.height, page.rect.width)
+            elif rotation_angle == 180:
+                mat = fitz.Matrix(-1, 0, 0, -1, page.rect.width, page.rect.height)
+                render_rect = page.rect
+            elif rotation_angle == 270:
+                mat = fitz.Matrix(0, -1, 1, 0, 0, page.rect.height)
+                render_rect = fitz.Rect(0, 0, page.rect.height, page.rect.width)
+            else:
+                mat = fitz.Matrix(1, 0, 0, 1, 0, 0)  # No rotation
+                render_rect = page.rect
+                
+            # Render the page with rotation applied
+            temp_pix = page.get_pixmap(matrix=mat * fitz.Matrix(3, 3), alpha=False)
+            temp_img = Image.open(io.BytesIO(temp_pix.tobytes("png")))
+            
+            # Insert the rotated image into the new page
+            temp_img_bytes = io.BytesIO()
+            temp_img.save(temp_img_bytes, format='PNG')
+            temp_img_bytes.seek(0)
+            
+            new_page.insert_image(target_rect, stream=temp_img_bytes.getvalue())
+            
+            print(f"Page {page_num + 1}: Corrected orientation by {rotation_angle}° for better readability")
         else:
-            new_page = output_pdf_doc.new_page(width=page.rect.width, height=page.rect.height)
-            target_rect = page.rect
+            # Original behavior: preserve original page orientation
+            if rotation_angle in [90, 270]:
+                new_page = output_pdf_doc.new_page(width=page.rect.height, height=page.rect.width)
+                target_rect = fitz.Rect(0, 0, page.rect.height, page.rect.width)
+            else:
+                new_page = output_pdf_doc.new_page(width=page.rect.width, height=page.rect.height)
+                target_rect = page.rect
 
-        # Always render original page as background
-        new_page.show_pdf_page(target_rect, pdf_document, page_num)
+            # Always render original page as background (maintains original orientation)
+            new_page.show_pdf_page(target_rect, pdf_document, page_num)
 
         # Map OCR coords to PDF coords
         scale_x = target_rect.width / processed_img.width
@@ -135,14 +185,20 @@ def pdf_to_searchable(input_pdf: str, output_pdf: str):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python ocr_pdf_searchable.py input.pdf output.pdf")
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
+        print("Usage: python ocr_pdf_searchable.py input.pdf output.pdf [--correct-orientation]")
+        print("  --correct-orientation: Save pages in corrected orientation for better readability")
         sys.exit(1)
 
     input_pdf, output_pdf = sys.argv[1], sys.argv[2]
+    save_corrected_orientation = len(sys.argv) == 4 and sys.argv[3] == "--correct-orientation"
+    
     try:
-        pdf_to_searchable(input_pdf, output_pdf)
-        print(f"Successfully created searchable PDF: {output_pdf}")
+        pdf_to_searchable(input_pdf, output_pdf, save_corrected_orientation)
+        if save_corrected_orientation:
+            print(f"Successfully created searchable PDF with corrected orientation: {output_pdf}")
+        else:
+            print(f"Successfully created searchable PDF: {output_pdf}")
     except Exception as e:
         # Bubble up errors so caller can log details
         print(f"Error processing PDF: {e}")

@@ -15,7 +15,7 @@ from notifications import notification_manager
 app = Flask(__name__)
 
 # Configuration
-BASE_PATH = "/volume1/Main/Main/ParkerPOsOCR"
+BASE_PATH = "/app"
 SCANS_PATH = f"{BASE_PATH}/Scans"
 POS_PATH = f"{BASE_PATH}/POs"
 ARCHIVE_PATH = f"{BASE_PATH}/Archive"
@@ -576,5 +576,4 @@ def api_approve_filemaker(po_number):
         return {"error": str(e)}, 500
 
 if __name__ == '__main__':
-    ssl_context = ('ssl/dashboard.crt', 'ssl/dashboard.key')
-    app.run(host='0.0.0.0', port=9443, debug=False, ssl_context=ssl_context)
+    app.run(host='0.0.0.0', port=5000, debug=False)

@@ -18,14 +18,14 @@ RUN pip install --no-cache-dir -r requirements-dashboard.txt
 COPY . /app/
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/ssl
+RUN mkdir -p /app/logs
 
 # Expose port
-EXPOSE 8443
+EXPOSE 5000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -k -f https://localhost:8443/login || exit 1
+  CMD curl -f http://localhost:5000/login || exit 1
 
-# Run the secure dashboard
-CMD ["python", "app_secure.py"]
+# Run the regular HTTP dashboard
+CMD ["python", "app.py"]

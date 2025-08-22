@@ -51,12 +51,12 @@ sleep 5
 echo "✅ Checking dashboard status..."
 if docker ps | grep -q "po-dashboard"; then
     echo "✅ Dashboard container is running!"
-    echo "🌐 Access at: https://192.168.0.62:8443"
+    echo "🌐 Access at: https://192.168.0.62:9443"
     
     # 11. Test connectivity
     echo "🔍 Testing connectivity..."
     for i in $(seq 1 5); do
-        if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:8443/login | grep -q "200"; then
+        if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:9443/login | grep -q "200"; then
             echo "✅ Dashboard is responding correctly!"
             echo ""
             echo "🎉 DEPLOYMENT SUCCESSFUL!"

@@ -1356,16 +1356,16 @@ if __name__ == '__main__':
             print(f"Debug: SSL key path: {ssl_key}")
             print(f"Debug: Certificate exists: {os.path.exists(ssl_cert)}")
             print(f"Debug: Key exists: {os.path.exists(ssl_key)}")
-            app.run(host='0.0.0.0', port=9443, ssl_context=(ssl_cert, ssl_key), debug=app.config['DEBUG'])
+            app.run(host='0.0.0.0', port=8443, ssl_context=(ssl_cert, ssl_key), debug=app.config['DEBUG'])
         except Exception as e:
             print(f"❌ HTTPS startup failed: {e}")
             print("🔄 Falling back to HTTP mode...")
             print(f"🔗 Access at: http://192.168.0.62:9443")
-            app.run(host='0.0.0.0', port=9443, debug=app.config['DEBUG'])
+            app.run(host='0.0.0.0', port=8443, debug=app.config['DEBUG'])
     else:
         if use_https:
             print("⚠️  HTTPS enabled but SSL certificates not found. Starting in HTTP mode.")
         print("🔓 Starting dashboard in HTTP mode...")
         print(f"🔗 Access at: http://192.168.0.62:9443")
         print("⚠️  Warning: HTTP mode is not secure for internet exposure!")
-        app.run(host='0.0.0.0', port=9443, debug=app.config['DEBUG'])
+        app.run(host='0.0.0.0', port=8443, debug=app.config['DEBUG'])

@@ -34,13 +34,12 @@ services:
     container_name: po-dashboard
     restart: unless-stopped
     ports:
-      - "8443:8443"
+      - "9443:5000"
     volumes:
       - ./POs:/app/POs
       - ./Scans:/app/Scans
       - ./Errors:/app/Errors
       - ./Archive:/app/Archive
-      - ./dashboard/ssl:/app/ssl
       - ./dashboard/logs:/app/logs
       - ./dashboard/uploads:/app/uploads
       - ./dashboard/templates:/app/templates
@@ -53,15 +52,13 @@ services:
       - PYTHONUNBUFFERED=1
       - TEMPLATES_AUTO_RELOAD=1
       - SECRET_KEY=parker-po-dashboard-secure-key-2025
-      - USE_HTTPS=true
-      - SSL_CERT_PATH=/app/ssl/dashboard.crt
-      - SSL_KEY_PATH=/app/ssl/dashboard.key
+      - USE_HTTPS=false
     networks:
       - po-network
     depends_on:
       - po-processor
     healthcheck:
-      test: ["CMD", "curl", "-k", "-f", "https://localhost:8443/login"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/login"]
       interval: 30s
       timeout: 10s
       retries: 3
